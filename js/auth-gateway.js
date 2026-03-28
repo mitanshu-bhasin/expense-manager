@@ -16,6 +16,7 @@ import {
   where,
   getDocs,
   updateDoc,
+  setDoc,
   serverTimestamp,
   doc,
   limit
@@ -123,7 +124,7 @@ function isActiveUser(userData) {
 
 function buildTargetPath(userData, fallbackNext) {
   const forced = String(fallbackNext || "").trim();
-  if (forced === "admin.html" || forced === "emp.html") {
+  if (forced === "admin.html" || forced === "emp.html" || forced === "company.html") {
     return forced;
   }
 
@@ -154,7 +155,23 @@ async function signInWithIdentifier(identifier, password) {
 async function activateExistingAccount(email, password) {
   const normalizedEmail = normalizeIdentifier(email);
   const userData = await getUserByEmail(normalizedEmail);
-  if (!userData) throw new Error("Account not found. Contact administrator.");
+  if (!userData) {
+    const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);
+    const createdUser = {
+      uid: credential.user.uid,
+      email: normalizedEmail,
+      name: credential.user.displayName || normalizedEmail.split('@')[0],
+      role: "ADMIN",
+      status: "ACTIVE",
+      companyId: null,
+      authProvider: "password",
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+    await setDoc(doc(db, "users", credential.user.uid), createdUser);
+    return { userData: { id: credential.user.uid, ...createdUser } };
+  }
+
   if (isActiveUser(userData)) throw new Error("Account already active. Please sign in.");
 
   const credential = await createUserWithEmailAndPassword(auth, normalizedEmail, password);

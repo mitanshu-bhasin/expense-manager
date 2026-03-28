@@ -234,7 +234,7 @@
                     <span class="theme-pill-label" id="themeLabel">Light</span>
                     <div class="theme-pill-toggle"></div>
                 </div>
-                <a href="company.html" class="btn-try">Request Access</a>
+                <a href="signup.html?next=company.html" class="btn-try">Request Access</a>
                 <button class="menu-btn" id="menuBtn" aria-label="Open mobile menu">
                     <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="8" x2="20" y2="8"></line><line x1="4" y1="16" x2="20" y2="16"></line></svg>
                 </button>
@@ -277,7 +277,7 @@
                 <li><a href="contact.html" style="color:var(--blue)">✉️ Contact</a></li>
             </ul>
             <div class="mobile-menu-footer">
-                <a href="company.html" class="btn-try" style="width:100%;justify-content:center;text-decoration:none">Request Access</a>
+                <a href="signup.html?next=company.html" class="btn-try" style="width:100%;justify-content:center;text-decoration:none">Request Access</a>
                 <div class="mobile-socials">
                     <a href="https://github.com/mitanshu-bhasin" target="_blank"><i class="fab fa-github"></i></a>
                     <a href="https://x.com/explyra" target="_blank"><i class="fab fa-twitter"></i></a>

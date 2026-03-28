@@ -20,9 +20,10 @@
       --line:#d7e4ff;
     }
     *{box-sizing:border-box}
+    html, body { height: 100%; }
     body{
       margin:0;
-      min-height:100vh;
+      min-height:100dvh;
       font-family:"Outfit","Segoe UI",sans-serif;
       color:var(--ink);
       background:
@@ -32,12 +33,19 @@
       display:flex;
       flex-direction:column;
       overflow:hidden;
+      overscroll-behavior:none;
+      touch-action:none;
     }
     .top{padding:16px 18px 8px;display:flex;justify-content:space-between;align-items:center}
     .logo{display:flex;align-items:center;gap:10px;font-weight:700}
     .logo img{width:34px;height:34px;border-radius:10px}
     .skip{font-weight:600;color:var(--brand);text-decoration:none;font-size:.88rem}
-    .slides{flex:1;display:flex;transition:transform .35s ease}
+    .slides{
+      flex:1;
+      display:flex;
+      transition:transform .32s cubic-bezier(.22,.61,.36,1);
+      transform:translateX(0);
+    }
     .slide{min-width:100%;padding:8px 18px 22px;display:flex;flex-direction:column;justify-content:center;gap:16px}
     .visual{
       background:var(--card);
@@ -72,6 +80,9 @@
     #backBtn{background:#fff;border:1px solid var(--line);color:var(--ink);padding-inline:16px}
     @media(min-width:760px){
       body{max-width:460px;margin:0 auto;border-inline:1px solid #dbe7ff}
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .slides, .dot { transition: none !important; }
     }
   </style>
 </head>
@@ -134,7 +145,9 @@
     const nextBtn = document.getElementById('nextBtn');
     const backBtn = document.getElementById('backBtn');
     let index = 0;
-    let touchStartX = 0;
+    let isAnimating = false;
+    const TRANSITION_MS = 320;
+    const totalSlides = dots.length;
 
     const goLogin = () => {
       window.location.replace('login.html');
@@ -144,19 +157,21 @@
       slides.style.transform = `translateX(-${index * 100}%)`;
       dots.forEach((dot, i) => dot.classList.toggle('active', i === index));
       backBtn.disabled = index === 0;
-      nextBtn.textContent = index === 3 ? 'Continue' : 'Next';
+      nextBtn.textContent = index === totalSlides - 1 ? 'Continue' : 'Next';
     }
 
     function move(delta) {
-      index = Math.max(0, Math.min(3, index + delta));
+      if (isAnimating) return;
+      const nextIndex = Math.max(0, Math.min(totalSlides - 1, index + delta));
+      if (nextIndex === index) return;
+      index = nextIndex;
+      isAnimating = true;
       render();
-      if (index === 3 && delta > 0) {
-        setTimeout(goLogin, 850);
-      }
+      setTimeout(() => { isAnimating = false; }, TRANSITION_MS + 40);
     }
 
     nextBtn.addEventListener('click', () => {
-      if (index === 3) {
+      if (index === totalSlides - 1) {
         goLogin();
       } else {
         move(1);
@@ -165,16 +180,21 @@
 
     backBtn.addEventListener('click', () => move(-1));
 
-    slides.addEventListener('touchstart', (e) => {
-      touchStartX = e.changedTouches[0].clientX;
-    }, { passive: true });
+    dots.forEach((dot, dotIndex) => {
+      dot.addEventListener('click', () => {
+        if (isAnimating || dotIndex === index) return;
+        index = dotIndex;
+        isAnimating = true;
+        render();
+        setTimeout(() => { isAnimating = false; }, TRANSITION_MS + 40);
+      });
+    });
 
-    slides.addEventListener('touchend', (e) => {
-      const dx = e.changedTouches[0].clientX - touchStartX;
-      if (Math.abs(dx) < 35) return;
-      if (dx < 0) move(1);
-      else move(-1);
-    }, { passive: true });
+    slides.addEventListener('transitionend', () => {
+      isAnimating = false;
+    });
+
+    render();
   </script>
 </body>
 </html>

@@ -233,10 +233,30 @@
                 return { id: hit.id, ...hit.data() };
             };
 
+            const ensureUserProfile = async (user) => {
+                if (!user || !user.email) return null;
+                let userData = await findUserDocByEmail(user.email || '');
+                if (userData) return userData;
+
+                const profile = {
+                    uid: user.uid,
+                    email: String(user.email || '').toLowerCase(),
+                    name: user.displayName || (String(user.email || '').split('@')[0] || 'User'),
+                    role: 'ADMIN',
+                    status: 'ACTIVE',
+                    companyId: null,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                };
+
+                await setDoc(doc(db, "users", user.uid), profile, { merge: true });
+                return { id: user.uid, ...profile };
+            };
+
             onAuthStateChanged(auth, async (user) => {
                 if (user) {
                     try {
-                        const userData = await findUserDocByEmail(user.email || '');
+                        const userData = await ensureUserProfile(user);
                         if (userData?.companyId) {
                             window.location.href = 'admin.html';
                         } else {
@@ -250,21 +270,21 @@
                         window.showToast(err.message, 'error');
                     }
                 } else {
-                    window.location.href = 'login.html?next=company.html';
+                    window.location.href = 'signup.html?next=company.html';
                 }
             });
 
             document.getElementById('companyForm').addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const user = auth.currentUser;
-                if (!user) return window.location.href = 'signup.html';
+                if (!user) return window.location.href = 'signup.html?next=company.html';
 
                 const btn = document.getElementById('submitBtn');
                 btn.disabled = true;
                 btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Creating...';
 
                 try {
-                    const userData = await findUserDocByEmail(user.email || '');
+                    const userData = await ensureUserProfile(user);
                     if (!userData) {
                         throw new Error('Unable to find your user profile. Please sign in again.');
                     }

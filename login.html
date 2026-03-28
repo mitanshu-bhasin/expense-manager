@@ -156,7 +156,7 @@
         <a href="signup.html">Need activation setup?</a>
         <a href="#" id="forgot-link">Forgot password</a>
       </div>
-      <p class="create-company-inline">First time setup? <a href="company.html">Create your company workspace</a></p>
+      <p class="create-company-inline">First time setup? <a href="signup.html?next=company.html">Create your company workspace</a></p>
     </section>
 
     <section id="panel-activate" class="panel">
@@ -177,7 +177,7 @@
       </form>
       <div class="meta">
         <a href="signup.html">Open full signup page</a>
-        <a href="company.html">Create company</a>
+        <a href="signup.html?next=company.html">Create company</a>
       </div>
     </section>
 
@@ -194,6 +194,7 @@
     const gateway = window.ExplyraAuthGateway;
     const qs = new URLSearchParams(window.location.search);
     const nextHint = qs.get("next") || "";
+    const wantsCompanySetup = nextHint === "company.html";
 
     const tabLogin = document.getElementById("tab-login");
     const tabActivate = document.getElementById("tab-activate");
@@ -302,6 +303,11 @@
     if (activationEmail) {
       setActiveTab("activate");
       document.getElementById("activate-email").value = activationEmail;
+    }
+
+    if (wantsCompanySetup && !activationEmail) {
+      setActiveTab("activate");
+      showToast("Create company ke liye pehle account activate karein.", "success");
     }
   </script>
 </body>
