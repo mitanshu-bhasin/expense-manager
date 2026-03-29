@@ -1,6 +1,6 @@
 {
-  "name": "Explyra Expense Mobile",
-  "short_name": "Explyra",
+  "name": "Explyra: Smart Expense Manager",
+  "short_name": "Explyra Expense",
   "id": "./mobile",
   "description": "Mobile-first expense and admin management for Explyra.",
   "start_url": "./login.html?source=mobile_pwa",
@@ -15,11 +15,11 @@
   "lang": "en-US",
   "dir": "ltr",
   "display_override": [
-    "window-controls-overlay",
+    "fullscreen",
     "standalone",
     "minimal-ui"
   ],
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "portrait",
   "prefer_related_applications": false,
   "background_color": "#0b1220",

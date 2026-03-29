@@ -3,9 +3,15 @@ import { collection, query, where, onSnapshot, updateDoc, doc, serverTimestamp, 
 
 window.empTasksData = [];
 window.empTasksLoaded = false;
+window.empTasksUnsub = null;
 
 window.fetchEmpTasks = () => {
     if (!window.currentUser || !window.userData) return;
+
+    if (typeof window.empTasksUnsub === 'function') {
+        window.empTasksUnsub();
+        window.empTasksUnsub = null;
+    }
 
     window.empTasksLoaded = true;
     const list = document.getElementById('emp-tasks-list');
@@ -19,7 +25,7 @@ window.fetchEmpTasks = () => {
         limit(100)
     );
 
-    onSnapshot(q, (snapshot) => {
+    window.empTasksUnsub = onSnapshot(q, (snapshot) => {
         window.empTasksData = [];
 
         if (snapshot.empty) {

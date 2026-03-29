@@ -1,6 +1,6 @@
-// Explyra Expense Mobile - Service Worker v10.1
+// Explyra Expense Mobile - Service Worker v10.2
 
-const VERSION = 'v10.1';
+const VERSION = 'v10.2';
 const CORE_CACHE = `explyra-mobile-core-${VERSION}`;
 const ASSET_CACHE = `explyra-mobile-assets-${VERSION}`;
 const CDN_CACHE = `explyra-mobile-cdn-${VERSION}`;
@@ -14,21 +14,32 @@ const PRECACHE_ASSETS = [
     './company.html',
     './emp.html',
     './admin.html',
+    './benifits.html',
     './privacy.html',
     './terms.html',
     './support.html',
     './contact.html',
     './offline.html',
     './manifest.json',
+    './css/admin-styles.css',
+    './css/admin-translate.css',
+    './css/emp-styles.css',
     './css/main.css',
     './css/index.css',
     './css/common.css',
     './css/responsive-fixes.css',
-    './js/env.js',
-    './js/common.js',
-    './js/emp-expenses.js',
-    './js/emp-chat.js',
+    './js/admin-helper.js',
     './js/admin-logic.js',
+    './js/common.js',
+    './js/emp-auth.js',
+    './js/emp-chat.js',
+    './js/emp-expenses.js',
+    './js/emp-notifications.js',
+    './js/emp-profile.js',
+    './js/emp-tasks.js',
+    './js/env.js',
+    './js/shared-nav.js',
+    './js/tenant-routing.js',
     './js/theme.js',
     './js/utils.js',
     './assets/images/explyra_logo.png',
@@ -39,7 +50,7 @@ const PRECACHE_ASSETS = [
 
 const CDN_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'unpkg.com'];
 const API_HOST_HINTS = ['firestore.googleapis.com', 'identitytoolkit.googleapis.com', 'securetoken.googleapis.com'];
-const STATIC_EXT_RE = /\.(?:css|js|mjs|png|jpg|jpeg|webp|avif|svg|gif|ico|woff|woff2|ttf|eot|json|xml|txt)$/i;
+const STATIC_EXT_RE = /\.(?:html|css|js|mjs|png|jpg|jpeg|webp|avif|svg|gif|ico|woff|woff2|ttf|eot|json|xml|txt|webmanifest)$/i;
 
 self.addEventListener('install', (event) => {
     event.waitUntil((async () => {
@@ -100,6 +111,12 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
+    const acceptsHtml = (request.headers.get('accept') || '').includes('text/html');
+    if (url.origin === self.location.origin && (request.destination === 'document' || acceptsHtml)) {
+        event.respondWith(handleNavigation(event));
+        return;
+    }
+
     const isCDN = CDN_HOSTS.some((host) => url.hostname.includes(host));
     if (isCDN) {
         event.respondWith(staleWhileRevalidate(request, CDN_CACHE));
@@ -143,7 +160,12 @@ async function networkFirst(request, cacheName, timeoutMs) {
         }
         return networkResponse;
     } catch (err) {
-        return cache.match(request);
+        const cached = await cache.match(request);
+        if (cached) return cached;
+        if (request.mode === 'navigate' || request.destination === 'document') {
+            return cache.match(OFFLINE_URL);
+        }
+        return undefined;
     }
 }
 
@@ -198,6 +220,8 @@ async function updateContent() {
     console.log('[SW] Performing periodic content sync...');
     const cache = await caches.open(CORE_CACHE);
     await Promise.allSettled([
+        cache.add('./index.html'),
+        cache.add('./login.html'),
         cache.add('./emp.html'),
         cache.add('./admin.html')
     ]);

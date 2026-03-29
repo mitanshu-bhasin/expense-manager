@@ -319,10 +319,19 @@ window.renderExpensesList = async (expenses) => {
         return;
     }
 
-    for (const data of expenses) {
+    const convertedAmounts = await Promise.all(
+        expenses.map((data) => {
+            const amt = parseFloat(data.totalAmount) || 0;
+            return window.convertCurrency(amt, data.currency || 'INR', window.baseCurrency);
+        })
+    );
+
+    const fragment = document.createDocumentFragment();
+
+    for (let idx = 0; idx < expenses.length; idx++) {
+        const data = expenses[idx];
         const dateStr = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Now';
-        const amt = parseFloat(data.totalAmount) || 0;
-        const convertedAmt = await window.convertCurrency(amt, data.currency || 'INR', window.baseCurrency);
+        const convertedAmt = convertedAmounts[idx];
         const canEdit = !['PAID', 'AUDITED', 'PAYMENT_ISSUE', 'PAYMENT_DISPUTED'].includes(data.status);
 
         const div = document.createElement('div');
@@ -352,8 +361,10 @@ window.renderExpensesList = async (expenses) => {
             </div>
             ` : ''}
         `;
-        list.appendChild(div);
+        fragment.appendChild(div);
     }
+
+    list.appendChild(fragment);
 };
 
 window.filterExpenses = (term) => {
@@ -509,6 +520,7 @@ window.toggleMode = (mode, options = {}) => {
 
     const secClaims = document.getElementById('section-claims');
     const secTasks = document.getElementById('section-tasks');
+    const activeView = window.__empActiveView || 'claims';
 
     // Clear list immediately to prevent showing old data
     const list = document.getElementById('expenses-list');
@@ -526,9 +538,14 @@ window.toggleMode = (mode, options = {}) => {
         const btnF = document.getElementById('btn-view-financials');
         if (btnF) btnF.classList.remove('hidden');
 
-        // Force Claims view
-        if (secClaims) secClaims.classList.remove('hidden');
-        if (secTasks) secTasks.classList.add('hidden');
+        // Keep user on the active tab where possible.
+        const nextView = activeView === 'financials' ? 'financials' : activeView;
+        if (typeof window.toggleEmpView === 'function') {
+            window.toggleEmpView(nextView, { skipHistory: true });
+        } else {
+            if (secClaims) secClaims.classList.remove('hidden');
+            if (secTasks) secTasks.classList.add('hidden');
+        }
 
         // Hide company-specific action buttons (using new personal stats buttons instead)
         if (btnNew) btnNew.parentElement.classList.add('hidden');
@@ -552,9 +569,14 @@ window.toggleMode = (mode, options = {}) => {
         const btnF = document.getElementById('btn-view-financials');
         if (btnF) btnF.classList.add('hidden');
 
-        // Restore default views
-        if (secClaims) secClaims.classList.remove('hidden');
-        if (secTasks) secTasks.classList.add('hidden');
+        // Keep user on current tab; financials is hidden in company mode.
+        const nextView = activeView === 'financials' ? 'claims' : activeView;
+        if (typeof window.toggleEmpView === 'function') {
+            window.toggleEmpView(nextView, { skipHistory: true });
+        } else {
+            if (secClaims) secClaims.classList.remove('hidden');
+            if (secTasks) secTasks.classList.add('hidden');
+        }
 
         // Show company action buttons
         if (btnNew) btnNew.parentElement.classList.remove('hidden');

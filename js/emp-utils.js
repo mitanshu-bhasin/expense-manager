@@ -343,6 +343,8 @@ window.toggleEmpView = (view, options = {}) => {
         view = 'claims';
     }
 
+    window.__empActiveView = view;
+
     const btnClaims = document.getElementById('btn-view-claims');
     const btnTasks = document.getElementById('btn-view-tasks');
     const btnFinancials = document.getElementById('btn-view-financials');
@@ -370,13 +372,36 @@ window.toggleEmpView = (view, options = {}) => {
             btnClaims.classList.remove('text-gray-500', 'dark:text-gray-400');
         }
         if (secClaims) secClaims.classList.remove('hidden');
+
+        // Rehydrate claims list on tab return in case previous view transitions cleared DOM.
+        const searchTerm = document.getElementById('emp-search')?.value || '';
+        if (window.currentMode === 'personal') {
+            if (Array.isArray(window.personalData) && typeof window.renderPersonalList === 'function') {
+                const filtered = window.personalData.filter((item) =>
+                    (item.expenseName || '').toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                window.renderPersonalList(filtered);
+            } else if (typeof window.fetchPersonalVault === 'function') {
+                window.fetchPersonalVault();
+            }
+        } else {
+            if (Array.isArray(window.expensesData) && window.expensesData.length > 0 && typeof window.filterExpenses === 'function') {
+                window.filterExpenses(searchTerm);
+            } else if (typeof window.fetchExpenses === 'function') {
+                window.fetchExpenses();
+            }
+        }
     } else if (view === 'tasks') {
         if (btnTasks) {
             btnTasks.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
             btnTasks.classList.remove('text-gray-500', 'dark:text-gray-400');
         }
         if (secTasks) secTasks.classList.remove('hidden');
-        if (!window.empTasksLoaded && window.fetchEmpTasks) window.fetchEmpTasks();
+        if (window.empTasksLoaded && typeof window.filterEmpTasks === 'function') {
+            window.filterEmpTasks();
+        } else if (typeof window.fetchEmpTasks === 'function') {
+            window.fetchEmpTasks();
+        }
     } else if (view === 'financials') {
         if (btnFinancials) {
             btnFinancials.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');

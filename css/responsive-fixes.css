@@ -1,5 +1,85 @@
 /* responsive-fixes.css - Premium Mobile Enhancements for Explyra */
 
+html,
+body {
+    max-width: 100%;
+    overflow-x: hidden;
+}
+
+#main-view-dashboard,
+#main-view-dashboard .vercel-card,
+#main-view-dashboard .grid,
+#main-view-dashboard #tabs-container,
+#main-view-dashboard #section-claims,
+#main-view-dashboard #section-tasks,
+#main-view-dashboard #section-financials {
+    min-width: 0;
+    max-width: 100%;
+}
+
+#main-view-dashboard table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+#main-view-dashboard table thead,
+#main-view-dashboard table tbody,
+#main-view-dashboard table tr {
+    width: 100%;
+}
+
+@media (max-width: 1024px) {
+    #tabs-container {
+        overflow-x: auto;
+        white-space: nowrap;
+        gap: 0.35rem;
+        scrollbar-width: none;
+    }
+
+    #tabs-container::-webkit-scrollbar {
+        display: none;
+    }
+
+    #tabs-container > button {
+        min-width: 132px;
+        flex: 0 0 auto !important;
+    }
+
+    #section-claims > div,
+    #section-tasks > div,
+    #section-financials > div {
+        flex-wrap: wrap;
+        gap: 0.65rem;
+    }
+
+    #section-tasks .relative.max-w-sm,
+    #section-claims .relative.max-w-sm {
+        max-width: 100% !important;
+    }
+}
+
+@media (max-width: 768px) {
+    #section-tasks > div:first-child .flex.gap-3.items-center.w-full {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #section-tasks > div:first-child .btn-geist-primary {
+        width: 100%;
+        justify-content: center;
+    }
+
+    #expenses-list,
+    #emp-tasks-list,
+    #financial-accounts-list {
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
+    }
+}
+
 /* General Mobile Optimizations */
 @media (max-width: 1024px) {
     body {
