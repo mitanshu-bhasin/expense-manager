@@ -206,25 +206,15 @@ window.showToast = (message, type = 'info') => {
 // Internal Modal System
 window.customModal = modalSystem;
 
-// Handle Google Drive Chat Attachments
+// Handle Chat Attachments via Firebase Cloud Storage
 window.handleChatAttachmentSelect = async (inputElement, targetInputId) => {
     const file = inputElement.files[0];
     if (!file) return;
 
-    if (!window.GDriveService) {
-        if (window.showToast) window.showToast('Google Drive Service not loaded.', 'error');
-        return;
-    }
-
-    if (!window.GDriveService.isConnected()) {
-        const connect = await confirm("Google Drive is not connected. Connect now to send attachments?");
-        if (connect) {
-            window.GDriveService.authenticate(() => {
-                // Retry after connect
-                window.handleChatAttachmentSelect(inputElement, targetInputId);
-            });
-        }
-        inputElement.value = ''; // Reset
+    // Validate file size (max 25MB)
+    if (file.size > 25 * 1024 * 1024) {
+        if (window.showToast) window.showToast('File too large. Max 25MB allowed.', 'error');
+        inputElement.value = '';
         return;
     }
 
@@ -240,44 +230,74 @@ window.handleChatAttachmentSelect = async (inputElement, targetInputId) => {
             submitBtn.disabled = true;
         }
     }
-    
+
     // Also disable the paperclip button
-    const attachBtn = inputElement.nextElementSibling;
+    const attachBtn = inputElement.previousElementSibling || inputElement.nextElementSibling;
     let origAttachClass = attachBtn ? attachBtn.className : '';
-    if (attachBtn) {
+    if (attachBtn && attachBtn.tagName === 'BUTTON') {
         attachBtn.classList.add('opacity-50', 'cursor-not-allowed');
-        attachBtn.classList.remove('hover:bg-slate-200', 'dark:hover:bg-slate-800');
     }
 
     try {
-        const uploadResult = await window.GDriveService.uploadFile(file);
-        
-        // Append the Drive link to the chat input value
+        if (window.showToast) window.showToast('Uploading attachment...', 'info');
+
+        // Use Firebase Storage modular SDK (already imported by emp-chat.js)
+        const { ref, uploadBytesResumable, getDownloadURL } = await import('https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js');
+        const { getStorage } = await import('https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js');
+        const storage = window.storage || getStorage(window.firebaseApp);
+
+        const sanitizedName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const storagePath = `chats/attachments/${Date.now()}_${sanitizedName}`;
+        const storageRef = ref(storage, storagePath);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        const downloadUrl = await new Promise((resolve, reject) => {
+            uploadTask.on('state_changed',
+                (snapshot) => {
+                    const total = snapshot.totalBytes || 0;
+                    const transferred = snapshot.bytesTransferred || 0;
+                    const progress = total > 0 ? (transferred / total) * 100 : 0;
+                    if (submitBtn) submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${Math.round(progress)}%`;
+                    console.log('[Chat Upload] Progress:', Math.round(progress) + '%');
+                },
+                (error) => {
+                    console.error('[Chat Upload] Error:', error);
+                    reject(error);
+                },
+                async () => {
+                    try {
+                        const url = await getDownloadURL(uploadTask.snapshot.ref);
+                        resolve(url);
+                    } catch (e) {
+                        reject(e);
+                    }
+                }
+            );
+        });
+
+        // Append the Firebase Storage link to the chat input
         const targetInput = document.getElementById(targetInputId);
         if (targetInput) {
-            const linkText = ` [📎 Attachment: ${file.name}](${uploadResult.url}) `;
-            // Automatically submit if it's empty, or just append
+            const linkText = ` [📎 Attachment: ${file.name}](${downloadUrl}) `;
             if (targetInput.value.trim() === '') {
-                 targetInput.value = linkText;
-                 // Manually trigger form submit
-                 if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+                targetInput.value = linkText;
+                if (form) form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
             } else {
-                 targetInput.value += linkText;
-                 targetInput.focus();
+                targetInput.value += linkText;
+                targetInput.focus();
             }
         }
+        if (window.showToast) window.showToast('Attachment sent!', 'success');
     } catch (e) {
-        console.error("Attachment upload failed", e);
-        // Error toast is handled in gdrive-service.js
+        console.error('Attachment upload failed', e);
+        if (window.showToast) window.showToast('Upload failed: ' + (e.message || 'Unknown error'), 'error');
     } finally {
-        inputElement.value = ''; // Reset input to allow selecting same file again
-        
-        // Restore buttons
+        inputElement.value = '';
         if (submitBtn) {
             submitBtn.innerHTML = originalBtnHTML;
             submitBtn.disabled = false;
         }
-        if (attachBtn) {
+        if (attachBtn && attachBtn.tagName === 'BUTTON') {
             attachBtn.className = origAttachClass;
         }
     }
@@ -408,56 +428,15 @@ window.parseChatLinks = (text) => {
     return safeText;
 };
 
-// Global Integrations UI Update helper
+// Integrations UI (Google Drive removed — Firebase Storage is used natively)
 window.updateGDriveUI = () => {
-    const isDriveConnected = window.GDriveService && window.GDriveService.isConnected();
+    // Google Drive integration has been removed.
+    // File uploads now use Firebase Cloud Storage directly.
+    // This function is kept as a no-op for backward compatibility.
     const isMapsEnabled = localStorage.getItem('google_maps_enabled') === 'true';
-    
-    // IDs to check for Drive/Sheets/Calendar/Meet
-    const driveStatusIds = ['gdrive-status-text', 'gsheets-status-text', 'gcalendar-status-text', 'gmeet-status-text', 'emp-gdrive-status-text', 'emp-gsheets-status-text', 'emp-gcalendar-status-text', 'emp-gmeet-status-text'];
-    const driveBtnIds = ['btn-gdrive-connect', 'btn-gsheets-connect', 'btn-gcalendar-connect', 'btn-gmeet-connect', 'btn-emp-gdrive-connect', 'btn-emp-gsheets-connect', 'btn-emp-gcalendar-connect', 'btn-emp-gmeet-connect'];
-    
-    // IDs for Maps
     const mapStatusIds = ['maps-status-text', 'emp-maps-status-text'];
     const mapBtnIds = ['btn-maps-connect', 'btn-emp-maps-connect'];
-    
-    driveStatusIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            el.textContent = isDriveConnected ? 'Connected' : 'Not connected';
-            el.className = isDriveConnected ? 'text-[9px] text-green-500 font-bold' : 'text-[9px] text-slate-500 font-medium';
-        }
-    });
-    
-    driveBtnIds.forEach(id => {
-        const el = document.getElementById(id);
-        if (el) {
-            if (isDriveConnected) {
-                el.innerHTML = '<i class="fa-solid fa-check-circle"></i> Connected';
-                el.classList.add('bg-green-50', 'dark:bg-green-900/20', 'text-green-600', 'dark:text-green-400', 'border-green-200', 'dark:border-green-800/30');
-                el.classList.remove('text-slate-700', 'dark:text-slate-300');
-                
-                // Add disconnect button if not exists
-                const dId = id + '-disconnect';
-                if (!document.getElementById(dId)) {
-                    const db = document.createElement('button');
-                    db.id = dId;
-                    db.className = 'ml-2 text-[10px] text-red-500 hover:text-red-700 font-bold uppercase transition';
-                    db.innerHTML = '<i class="fa-solid fa-unlink"></i>';
-                    db.onclick = (e) => { e.stopPropagation(); window.GDriveService.disconnect(); };
-                    el.after(db);
-                }
-            } else {
-                el.innerHTML = '<i class="fa-solid fa-link"></i> Connect';
-                el.classList.remove('bg-green-50', 'dark:bg-green-900/20', 'text-green-600', 'dark:text-green-400', 'border-green-200', 'dark:border-green-800/30');
-                el.classList.add('text-slate-700', 'dark:text-slate-300');
-                const d = document.getElementById(id + '-disconnect');
-                if (d) d.remove();
-            }
-        }
-    });
 
-    // Handle Maps
     mapStatusIds.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
@@ -471,25 +450,8 @@ window.updateGDriveUI = () => {
         if (el) {
             if (isMapsEnabled) {
                 el.innerHTML = '<i class="fa-solid fa-check"></i> Active';
-                el.classList.add('bg-blue-50', 'dark:bg-blue-900/20', 'text-blue-600', 'dark:text-blue-400', 'border-blue-200', 'dark:border-blue-800/30');
-                el.classList.remove('text-slate-700', 'dark:text-slate-300');
-                
-                // Add disable button
-                const dId = id + '-disable';
-                if (!document.getElementById(dId)) {
-                    const db = document.createElement('button');
-                    db.id = dId;
-                    db.className = 'ml-2 text-[10px] text-red-500 hover:text-red-700 font-bold uppercase transition';
-                    db.innerHTML = '<i class="fa-solid fa-power-off"></i>';
-                    db.onclick = (e) => { e.stopPropagation(); localStorage.setItem('google_maps_enabled', 'false'); window.updateGDriveUI(); };
-                    el.after(db);
-                }
             } else {
                 el.innerHTML = '<i class="fa-solid fa-power-off"></i> Enable';
-                el.classList.remove('bg-blue-50', 'dark:bg-blue-900/20', 'text-blue-600', 'dark:text-blue-400', 'border-blue-200', 'dark:border-blue-800/30');
-                el.classList.add('text-slate-700', 'dark:text-slate-300');
-                const d = document.getElementById(id + '-disable');
-                if (d) d.remove();
             }
         }
     });
@@ -501,13 +463,8 @@ window.enableMaps = () => {
     if (window.showToast) window.showToast("Google Maps services enabled!", "success");
 };
 
-// Listen for connection events globally
-window.addEventListener('gdrive-connected', window.updateGDriveUI);
-window.addEventListener('gdrive-disconnected', window.updateGDriveUI);
-
 // Check status on load
 document.addEventListener('DOMContentLoaded', () => {
-    // Initial check
     setTimeout(() => {
         if (window.updateGDriveUI) window.updateGDriveUI();
     }, 1000);

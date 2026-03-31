@@ -21,7 +21,7 @@ function ensureChatLauncher() {
 }
 
 function ensureScrollToLatestButton() {
-    const container = document.getElementById('chat-messages-emp');
+    const container = document.getElementById('chat-messages-container');
     if (!container) return;
     if (document.getElementById('chat-scroll-latest-btn')) return;
 
@@ -82,19 +82,24 @@ class VoiceRecorder {
 }
 
 window.openChatModal = async () => {
-    document.getElementById('modal-chat').classList.remove('hidden');
+    if (window.toggleMainView) {
+        window.toggleMainView('messages');
+    }
     ensureScrollToLatestButton();
-    document.getElementById('chat-main-area').classList.remove('translate-x-0'); // reset mobile view
-    document.getElementById('chat-main-area').classList.add('translate-x-full');
+    const mainArea = document.getElementById('chat-main-area');
+    if (mainArea) {
+        mainArea.classList.remove('translate-x-0');
+        mainArea.classList.add('translate-x-full');
+    }
     await fetchChatUsers();
-    window.selectChat('global'); // default
+    window.selectChat('global'); 
 
     // Mentions Setup
     if (mentionBindingsReady) return;
     mentionBindingsReady = true;
 
     setTimeout(() => {
-        const input = document.getElementById('chat-input-emp');
+        const input = document.getElementById('chat-input-msg');
         const dropdown = document.getElementById('mentions-dropdown-emp');
         if (!input || !dropdown) return;
 
@@ -165,8 +170,21 @@ window.closeChatModal = () => {
     if (modal) modal.classList.add('hidden');
 };
 
-async function fetchChatUsers() {
+let lastChatUsersFetch = 0;
+const CHAT_CACHE_TTL = 120000; // 2 minutes
+
+async function fetchChatUsers(force = false) {
     if (!window.userData || !window.userData.docId || !window.companyId) return;
+
+    // Return early if we have recent valid cache
+    if (!force && lastChatUsersFetch && (Date.now() - lastChatUsersFetch < CHAT_CACHE_TTL)) {
+        console.log('[emp-chat] Using cached chat list');
+        if (typeof renderChatUserSearch === 'function') {
+            const globalLast = localStorage.getItem('emp_last_global_msg') || "Company wide chat";
+            renderChatUserSearch('', globalLast);
+        }
+        return;
+    }
 
     try {
         const db = window.db;
@@ -194,6 +212,7 @@ async function fetchChatUsers() {
         // Get Global Chat last message
         const globalChatSnap = await getDocs(query(collection(db, "global_chat"), where("companyId", "==", window.companyId), orderBy("createdAt", "desc"), limit(1)));
         const globalLast = globalChatSnap.empty ? "Company wide chat" : globalChatSnap.docs[0].data().text;
+        localStorage.setItem('emp_last_global_msg', globalLast);
 
         // Sort users by activity
         chatUsers = allUsers.sort((a, b) => {
@@ -208,6 +227,7 @@ async function fetchChatUsers() {
             return timeB - timeA;
         });
 
+        lastChatUsersFetch = Date.now();
         renderChatUserSearch('', globalLast, chatMeta);
     } catch (e) {
         console.error("Failed to load chat users:", e);
@@ -303,7 +323,8 @@ window.confirmCreateGroup = async () => {
 window.filterChatUsers = (term) => renderChatUserSearch(term.toLowerCase());
 
 function renderChatUserSearch(term, globalLastText = "Company wide chat", chatMeta = {}) {
-    const list = document.getElementById('chat-user-list');
+    // Support both the old modal-based list and the new sidebar list
+    const list = document.getElementById('chat-user-list') || document.getElementById('chat-direct-list');
     if (!list) return;
 
     list.innerHTML = `
@@ -385,17 +406,22 @@ window.selectChat = (contextId) => {
         window.currentChatUser = chatUsers.find(u => u.docId === contextId);
     }
 
-    // UI Update Left Sidebar (Mobile Shift)
-    const mainArea = document.getElementById('chat-main-area');
+    // UI Update: show the active chat thread view
+    const mainArea = document.getElementById('chat-main-area') || document.getElementById('chat-thread-container');
     if (mainArea) {
         mainArea.classList.remove('translate-x-full');
         mainArea.classList.add('translate-x-0', 'active');
     }
+    // Also show the active-chat body and hide empty state
+    const emptyState = document.getElementById('chat-empty-state');
+    const activeView = document.getElementById('chat-active-view');
+    if (emptyState) emptyState.classList.add('hidden');
+    if (activeView) { activeView.classList.remove('hidden'); activeView.style.display = 'flex'; }
 
     // Header Update
-    const headerName = document.getElementById('active-chat-name');
-    const headerStatus = document.getElementById('active-chat-status');
-    const headerAvatar = document.getElementById('active-chat-avatar');
+    const headerName = document.getElementById('active-chat-name') || document.getElementById('thread-name');
+    const headerStatus = document.getElementById('active-chat-status') || document.getElementById('thread-status');
+    const headerAvatar = document.getElementById('active-chat-avatar') || document.getElementById('thread-avatar');
     const callActions = document.getElementById('chat-call-actions');
     if (callActions) callActions.classList.add('hidden');
 
@@ -447,7 +473,7 @@ function runChatListener(collectionName, subCollectionId) {
     if (activeChatUnsub) activeChatUnsub();
 
     const db = window.db;
-    const container = document.getElementById('chat-messages-emp');
+    const container = document.getElementById('chat-messages-container') || document.getElementById('chat-messages-emp');
     if (container) container.innerHTML = '<div class="flex justify-center mt-20"><i class="fa-solid fa-circle-notch fa-spin text-slate-300 dark:text-slate-600 text-2xl"></i></div>';
 
     let q;
@@ -703,7 +729,7 @@ window.sendChatMessage = async (e, payload = null) => {
 
     const payloadType = payload?.type || null;
     const payloadText = typeof payload?.text === 'string' ? payload.text.trim() : '';
-    const input = document.getElementById('chat-input-emp');
+    const input = document.getElementById('chat-input-msg') || document.getElementById('chat-input-emp');
     const userTypedText = input ? input.value.trim() : '';
     const text = payloadType
         ? (payloadText || (payloadType === 'voice' ? '🎤 Voice Message' : ''))
@@ -759,29 +785,16 @@ window.sendChatMessage = async (e, payload = null) => {
 
         cancelReply();
         if (input) input.focus();
-        const container = document.getElementById('chat-messages-emp');
+        const container = document.getElementById('chat-messages-container') || document.getElementById('chat-messages-emp');
         if (container) setTimeout(() => { container.scrollTop = container.scrollHeight; }, 100);
 
-        // Handle @meet (only for user text, non-spam)
+        // Handle @meet — Google Drive removed, show info message
         if (!payloadType && !isSpam && text.toLowerCase().includes('@meet')) {
             setTimeout(async () => {
                 try {
-                    if (!window.GDriveService || !window.GDriveService.isConnected()) {
-                        await window.sendChatMessage(null, {
-                            type: 'system',
-                            text: '⚠️ Google account connect karo: Profile -> Integrations, tab @meet ka link banega.'
-                        });
-                        return;
-                    }
-
-                    const meetResult = await window.GDriveService.createMeetLink('Explyra Meeting — ' + (window.userData.name || 'Team'));
-                    await window.sendChatMessage(null, { 
-                        type: 'meet_link', 
-                        text: `Meeting invite created by ${window.userData.name || 'Host'}`,
-                        meetUrl: meetResult.meetUrl,
-                        meetTitle: 'Team Sync Meeting',
-                        meetHost: window.userData.name || window.userData.email,
-                        meetDate: new Date().toLocaleString()
+                    await window.sendChatMessage(null, {
+                        type: 'text',
+                        text: '📹 To start a meeting, create a Google Meet link at meet.google.com and share it here!'
                     });
                 } catch (err) { console.error('@meet error:', err); }
             }, 500);
@@ -793,7 +806,7 @@ window.sendChatMessage = async (e, payload = null) => {
 };
 
 window.deleteChatMessage = async (msgId, subCollectionId) => {
-    if (!confirm("Delete this message?")) return;
+    if (!(await confirm("Delete this message?"))) return;
     try {
         const db = window.db;
         let path = '';
@@ -821,7 +834,7 @@ window.sendLocationMessage = () => {
         const mapUrl = `https://www.google.com/maps?q=${latitude},${longitude}`;
         const msg = `📍 Shared Location: ${mapUrl}`;
         
-        const input = document.getElementById('chat-input-emp');
+        const input = document.getElementById('chat-input-msg') || document.getElementById('chat-input-emp');
         if (input) {
             input.value = msg;
             const form = input.closest('form');
@@ -843,7 +856,8 @@ window.replyToMessage = (msgId, sender, text) => {
         contentEl.textContent = text;
         container.classList.remove('hidden');
         container.classList.add('flex');
-        document.getElementById('chat-input-emp').focus();
+        const focusInput = document.getElementById('chat-input-msg') || document.getElementById('chat-input-emp');
+        if (focusInput) focusInput.focus();
     }
 };
 
@@ -860,9 +874,10 @@ window.startVoiceRecord = async () => {
     if (!voiceRecorder) voiceRecorder = new VoiceRecorder();
     const success = await voiceRecorder.start();
     if (success) {
-        document.getElementById('voice-recorder-ui').classList.remove('hidden');
-        document.getElementById('voice-recorder-ui').classList.add('flex');
-        document.getElementById('chat-form-emp').classList.add('hidden');
+        const voiceUI = document.getElementById('voice-recorder-ui');
+        const chatForm = document.getElementById('chat-input-form') || document.getElementById('chat-form-emp');
+        if (voiceUI) { voiceUI.classList.remove('hidden'); voiceUI.classList.add('flex'); }
+        if (chatForm) chatForm.classList.add('hidden');
         
         voiceStartTime = Date.now();
         voiceTimerInterval = setInterval(() => {
@@ -878,17 +893,19 @@ window.startVoiceRecord = async () => {
 window.cancelVoiceRecord = () => {
     if (voiceRecorder) voiceRecorder.stop();
     clearInterval(voiceTimerInterval);
-    document.getElementById('voice-recorder-ui').classList.add('hidden');
-    document.getElementById('voice-recorder-ui').classList.remove('flex');
-    document.getElementById('chat-form-emp').classList.remove('hidden');
+    const voiceUI = document.getElementById('voice-recorder-ui');
+    const chatForm = document.getElementById('chat-input-form') || document.getElementById('chat-form-emp');
+    if (voiceUI) { voiceUI.classList.add('hidden'); voiceUI.classList.remove('flex'); }
+    if (chatForm) chatForm.classList.remove('hidden');
 };
 
 window.stopAndSendVoice = async () => {
     const blob = await voiceRecorder.stop();
     clearInterval(voiceTimerInterval);
-    document.getElementById('voice-recorder-ui').classList.add('hidden');
-    document.getElementById('voice-recorder-ui').classList.remove('flex');
-    document.getElementById('chat-form-emp').classList.remove('hidden');
+    const voiceUI2 = document.getElementById('voice-recorder-ui');
+    const chatForm2 = document.getElementById('chat-input-form') || document.getElementById('chat-form-emp');
+    if (voiceUI2) { voiceUI2.classList.add('hidden'); voiceUI2.classList.remove('flex'); }
+    if (chatForm2) chatForm2.classList.remove('hidden');
 
     if (blob.size < 1000) return showToast("Recording too short", "error");
 

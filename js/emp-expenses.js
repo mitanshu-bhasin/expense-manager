@@ -312,59 +312,79 @@ window.updateStats = async (pending, paid) => {
 window.renderExpensesList = async (expenses) => {
     const list = document.getElementById('expenses-list');
     if (!list) return;
-    list.innerHTML = '';
 
-    if (expenses.length === 0) {
-        list.innerHTML = `<div class="text-center py-12"><p class="text-slate-500">No expenses found</p></div>`;
-        return;
-    }
+    // 1. Fetch data required for rendering first (currency rates)
+    // This part took ~10-20s before if network was slow, leaving list blank.
+    const base = window.baseCurrency || 'INR';
+    
+    // Quick early render with existing amounts if currency fetch is pending? 
+    // No, better to fetch once and then render properly.
+    const rates = await window.getExchangeRates();
 
-    const convertedAmounts = await Promise.all(
-        expenses.map((data) => {
+    const render = () => {
+        if (expenses.length === 0) {
+            list.innerHTML = `<div class="flex flex-col items-center justify-center py-20 text-slate-400">
+                <i class="fa-solid fa-folder-open text-3xl mb-4 opacity-20"></i>
+                <p class="text-xs font-medium">No records found for this view</p>
+            </div>`;
+            return;
+        }
+
+        const fragment = document.createDocumentFragment();
+        expenses.forEach((data) => {
             const amt = parseFloat(data.totalAmount) || 0;
-            return window.convertCurrency(amt, data.currency || 'INR', window.baseCurrency);
-        })
-    );
+            // Synchronous conversion using cached rates
+            let convertedAmt = amt;
+            if (data.currency && data.currency !== base && rates[data.currency] && rates[base]) {
+                convertedAmt = (amt / rates[data.currency]) * rates[base];
+            } else if (data.currency && data.currency !== 'INR' && base === 'INR' && rates[data.currency]) {
+                convertedAmt = amt / rates[data.currency];
+            }
 
-    const fragment = document.createDocumentFragment();
+            const dateStr = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Now';
+            const canEdit = !['PAID', 'AUDITED', 'PAYMENT_ISSUE', 'PAYMENT_DISPUTED'].includes(data.status);
+            const statusClass = window.getStatusColor(data.status);
 
-    for (let idx = 0; idx < expenses.length; idx++) {
-        const data = expenses[idx];
-        const dateStr = data.createdAt?.toDate ? data.createdAt.toDate().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'Now';
-        const convertedAmt = convertedAmounts[idx];
-        const canEdit = !['PAID', 'AUDITED', 'PAYMENT_ISSUE', 'PAYMENT_DISPUTED'].includes(data.status);
+            const div = document.createElement('div');
+            div.className = `vercel-card p-4 flex justify-between items-center cursor-pointer hover:border-brand-500 transition-all duration-200 group animate-in fade-in slide-in-from-bottom-2`;
+            div.onclick = (e) => {
+                if (!e.target.closest('button')) window.viewReportHistory(data);
+            };
 
-        const div = document.createElement('div');
-        div.className = `card p-4 rounded-lg flex justify-between items-center cursor-pointer hover:border-emerald-300 transition group animate-[slideUp_0.1s]`;
-        div.onclick = (e) => {
-            if (!e.target.closest('button')) window.viewReportHistory(data);
-        };
-
-        div.innerHTML = `
-            <div class="flex items-center gap-4">
-                <div class="flex flex-col items-center justify-center w-12 h-12 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-800 text-slate-500 dark:text-slate-400">
-                    <span class="text-[10px] font-bold uppercase">${dateStr.split(' ')[1] || ''}</span>
-                    <span class="text-lg font-bold text-slate-700 dark:text-slate-200">${dateStr.split(' ')[0] || ''}</span>
-                </div>
-                <div>
-                    <p class="text-sm font-bold text-slate-700 dark:text-slate-200 group-hover:text-green-600 transition truncate max-w-[150px] sm:max-w-xs">${data.title}</p>
-                    <div class="flex gap-2 text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 flex-wrap">
-                        <span class="bg-slate-100 dark:bg-slate-700 px-1.5 rounded font-medium">${window.formatCurrency(convertedAmt, window.baseCurrency)}</span>
-                        <span class="bg-slate-100 dark:bg-slate-700 px-1.5 rounded">${data.status.replace(/_/g, ' ')}</span>
+            div.innerHTML = `
+                <div class="flex items-center gap-4 min-w-0">
+                    <div class="flex flex-col items-center justify-center w-12 h-12 bg-slate-50 dark:bg-[#111] rounded-xl border border-slate-100 dark:border-[#333] shrink-0">
+                        <span class="text-[9px] font-black uppercase text-slate-400 leading-tight">${dateStr.split(' ')[1] || ''}</span>
+                        <span class="text-base font-black text-slate-800 dark:text-slate-100 leading-tight">${dateStr.split(' ')[0] || ''}</span>
+                    </div>
+                    <div class="min-w-0">
+                        <h4 class="text-sm font-bold text-slate-800 dark:text-slate-200 truncate pr-2 group-hover:text-brand-600 transition-colors">${data.title}</h4>
+                        <div class="flex items-center gap-2 mt-1.5 overflow-hidden">
+                            <span class="inline-flex items-center text-[10px] font-black text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                                ${window.formatCurrency(convertedAmt, base)}
+                            </span>
+                            <span class="inline-flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${statusClass} whitespace-nowrap">
+                                <span class="w-1 h-1 rounded-full bg-current"></span>
+                                ${data.status.replace(/_/g, ' ')}
+                            </span>
+                        </div>
                     </div>
                 </div>
-            </div>
-            ${canEdit ? `
-            <div class="flex gap-2">
-                <button onclick="window.editExpense('${data.id}')" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-green-100 hover:text-green-600 transition flex items-center justify-center"><i class="fa-solid fa-pen text-xs"></i></button>
-                <button onclick="window.deleteExpense('${data.id}')" class="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-red-100 hover:text-red-600 transition flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
-            </div>
-            ` : ''}
-        `;
-        fragment.appendChild(div);
-    }
+                ${canEdit ? `
+                <div class="flex gap-1.5 shrink-0 ml-2">
+                    <button onclick="window.editExpense('${data.id}')" class="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-400 hover:text-brand-600 hover:bg-brand-50 hover:border-brand-100 transition-all flex items-center justify-center"><i class="fa-solid fa-pen text-[10px]"></i></button>
+                    <button onclick="window.deleteExpense('${data.id}')" class="w-8 h-8 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-100 dark:border-slate-800 text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-100 transition-all flex items-center justify-center"><i class="fa-solid fa-trash text-[10px]"></i></button>
+                </div>
+                ` : `<i class="fa-solid fa-chevron-right text-slate-300 dark:text-slate-700 text-[10px] mr-2"></i>`}
+            `;
+            fragment.appendChild(div);
+        });
 
-    list.appendChild(fragment);
+        list.innerHTML = '';
+        list.appendChild(fragment);
+    };
+
+    requestAnimationFrame(render);
 };
 
 window.filterExpenses = (term) => {
@@ -714,23 +734,38 @@ window.handleFileSelect = async (input) => {
     const removeBtn = el.querySelector('.btn-remove-img');
     const orig = label.innerHTML;
 
+    label.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading...';
     try {
-        const fd = new FormData();
-        fd.append('image', file);
-        const res = await fetch(IMGBB_URL, { method: 'POST', body: fd });
-        const data = await res.json();
-
-        if (data && data.data && data.data.url) {
-            hidden.value = data.data.url;
-            label.innerHTML = '<i class="fa-solid fa-check text-green-500"></i> Done';
-            if (status) status.classList.remove('hidden');
-            if (removeBtn) removeBtn.classList.remove('hidden');
-        } else {
-            throw new Error("Upload failed");
-        }
+        const { getStorage, ref, uploadBytesResumable, getDownloadURL } = await import('https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js');
+        const storage = window.storage || getStorage(window.firebaseApp);
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
+        const fileRef = ref(storage, `expenses/${window.companyId || 'default'}/${window.userData?.docId || 'guest'}/${fileName}`);
+        
+        console.log('[Upload] Starting upload for:', fileName);
+        const uploadTask = uploadBytesResumable(fileRef, file);
+        uploadTask.on('state_changed', 
+            (snap) => {
+                const total = snap.totalBytes || 0;
+                const transferred = snap.bytesTransferred || 0;
+                const prog = total > 0 ? (transferred / total) * 100 : 0;
+                label.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${Math.round(prog)}%`;
+                console.log('[Upload] Progress:', Math.round(prog) + '%');
+            },
+            (err) => { 
+                console.error('[Upload] Error:', err);
+                throw err; 
+            },
+            async () => {
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                hidden.value = url;
+                label.innerHTML = '<i class="fa-solid fa-check text-green-500"></i> Done';
+                if (status) status.classList.remove('hidden');
+                if (removeBtn) removeBtn.classList.remove('hidden');
+            }
+        );
     } catch (e) {
         label.innerHTML = orig;
-        window.showToast("Upload failed", "error");
+        window.showToast("Upload failed: " + e.message, "error");
     }
 };
 
@@ -775,21 +810,40 @@ window.handleProofUpload = async (input) => {
     const urlInput = document.getElementById('approval-proof-url');
     const label = document.getElementById('proof-upload-label');
     const removeBtn = document.getElementById('btn-remove-proof');
+    const orig = label.innerHTML;
     label.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading...';
+    
     try {
-        const fd = new FormData();
-        fd.append('image', file);
-        const res = await fetch(IMGBB_URL, { method: 'POST', body: fd });
-        const data = await res.json();
-        if (data && data.data && data.data.url) {
-            hidden.value = data.data.url;
-            if (urlInput) urlInput.value = ''; // Clear manual link if file is uploaded
-            label.innerHTML = '<i class="fa-solid fa-check text-green-500"></i> Attached';
-            if (removeBtn) removeBtn.classList.remove('hidden');
-        } else { throw new Error("Upload failed"); }
+        const { getStorage, ref, uploadBytesResumable, getDownloadURL } = await import('https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js');
+        const storage = window.storage || getStorage(window.firebaseApp);
+        const fileName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '')}`;
+        const fileRef = ref(storage, `expense_proofs/${window.companyId || 'default'}/${window.userData?.docId || 'guest'}/${fileName}`);
+        
+        console.log('[Proof Upload] Starting upload for:', fileName);
+        const uploadTask = uploadBytesResumable(fileRef, file);
+        uploadTask.on('state_changed', 
+            (snap) => {
+                const total = snap.totalBytes || 0;
+                const transferred = snap.bytesTransferred || 0;
+                const prog = total > 0 ? (transferred / total) * 100 : 0;
+                label.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${Math.round(prog)}%`;
+                console.log('[Proof Upload] Progress:', Math.round(prog) + '%');
+            },
+            (err) => { 
+                console.error('[Proof Upload] Error:', err);
+                throw err; 
+            },
+            async () => {
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                hidden.value = url;
+                if (urlInput) urlInput.value = ''; // Clear manual link if file is uploaded
+                label.innerHTML = '<i class="fa-solid fa-check text-green-500"></i> Attached';
+                if (removeBtn) removeBtn.classList.remove('hidden');
+            }
+        );
     } catch (e) {
         label.innerHTML = orig;
-        window.showToast("Upload failed", "error");
+        window.showToast("Upload failed: " + e.message, "error");
     }
 };
 

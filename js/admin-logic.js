@@ -1,7 +1,7 @@
 import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, createUserWithEmailAndPassword, sendPasswordResetEmail, GoogleAuthProvider, RecaptchaVerifier, PhoneAuthProvider, updatePhoneNumber, signInWithPopup, deleteUser } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 import { getFirestore, collection, collectionGroup, query, where, getDocs, getCountFromServer, doc, updateDoc, addDoc, onSnapshot, serverTimestamp, setDoc, orderBy, getDoc, deleteDoc, writeBatch, limit } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
-import { getStorage, ref, uploadString, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js";
+import { getStorage, ref, uploadString, getDownloadURL, uploadBytesResumable } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js";
 import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-messaging.js";
 
 
@@ -796,23 +796,7 @@ onAuthStateChanged(auth, async (user) => {
                 // Load module preferences from Firebase
                 await window.loadModulePreferencesFromFirebase();
 
-                // --- GOOGLE DRIVE CLOUD SYNC ---
-                if (window.GDriveService) {
-                    // Set up the sync provider BEFORE restoration
-                    window.GDriveService.setOnStateChange(async (isConnected) => {
-                        try {
-                            const { updateDoc, doc } = await import("https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js");
-                            await updateDoc(doc(window.db, "users", userData.docId), { gdriveConnected: isConnected });
-                        } catch (e) {
-                            console.error("Failed to sync GDrive state to Firestore", e);
-                        }
-                    });
-
-                    // Restore state from cloud
-                    if (userData.gdriveConnected) {
-                        window.GDriveService.restoreConnection(true);
-                    }
-                }
+                // --- GOOGLE DRIVE REMOVED (now using Firebase Cloud Storage) ---
 
 
 
@@ -1671,26 +1655,45 @@ window.switchTab = (tab, options = {}) => {
         normalizedTab = 'overview';
     }
 
-    // Cleanup active listeners
-    activeListeners.forEach(unsub => unsub());
-    activeListeners = [];
+    // Fast Cleanup
+    if (activeListeners.length) {
+        activeListeners.forEach(unsub => unsub());
+        activeListeners = [];
+    }
 
-    document.querySelectorAll('.sidebar-item').forEach(el => {
-        el.classList.remove('active', 'bg-slate-800', 'text-white');
-        if (el.dataset.tab === normalizedTab) el.classList.add('active');
+    // Fast UI Update
+    requestAnimationFrame(() => {
+        document.querySelectorAll('.sidebar-item').forEach(el => {
+            const isActive = el.dataset.tab === normalizedTab;
+            el.classList.toggle('active', isActive);
+            if (isActive) {
+                el.classList.add('bg-slate-800', 'text-white');
+            } else {
+                el.classList.remove('bg-slate-800', 'text-white');
+            }
+        });
+
+        // Close sidebar on mobile
+        if (window.innerWidth < 1024) {
+             const sidebar = document.getElementById('admin-sidebar');
+             if (sidebar && !sidebar.classList.contains('-translate-x-full')) {
+                 window.toggleSidebar?.();
+             }
+        }
     });
 
+    // Render Section
     if (normalizedTab === 'overview') renderOverview();
-    if (normalizedTab === 'approvals') renderApprovals();
-    if (normalizedTab === 'users') renderUserManagement();
-    if (normalizedTab === 'settings') renderSettings();
-    if (normalizedTab === 'reports') renderReports();
-    if (normalizedTab === 'audit') renderAuditLogs();
-    if (normalizedTab === 'tasks') renderTasks(); // Added tasks renderer
-    if (normalizedTab === 'projects') renderProjects();
-    if (normalizedTab === 'chat') renderChat();
-    if (normalizedTab === 'workflow') renderWorkflow();
-    if (normalizedTab === 'roles') renderRoles();
+    else if (normalizedTab === 'approvals') renderApprovals();
+    else if (normalizedTab === 'users') renderUserManagement();
+    else if (normalizedTab === 'settings') renderSettings();
+    else if (normalizedTab === 'reports') renderReports();
+    else if (normalizedTab === 'audit') renderAuditLogs();
+    else if (normalizedTab === 'tasks') renderTasks();
+    else if (normalizedTab === 'projects') renderProjects();
+    else if (normalizedTab === 'chat') renderChat();
+    else if (normalizedTab === 'workflow') renderWorkflow();
+    else if (normalizedTab === 'roles') renderRoles();
 
     const skipHistory = !!options.skipHistory;
     const replaceHistory = !!options.replaceHistory;
@@ -2327,237 +2330,715 @@ window.uploadAuditCSV = (input) => {
     reader.readAsText(file);
 };
 
+// --- TASK MANAGER SYSTEM (MODERN) ---
+window.currentTaskUnsub = null;
+window.adminTasksData = [];
+window.currentTaskDetailId = null;
+window.taskFilter = { status: '', search: '', roleView: 'ALL' }; // ALL, ASSIGNED, CREATED
+
+function getTaskStatusClass(status) {
+    switch (status) {
+        case 'PENDING': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+        case 'IN_PROGRESS': return 'bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-400';
+        case 'COMPLETED': return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400';
+        case 'OVERDUE': return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400';
+        default: return 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-400';
+    }
+}
+
 async function renderTasks() {
     document.getElementById('page-title').textContent = "Task Manager";
     const content = document.getElementById('content-area');
-
-    // Fetch users for assignment dropdown
-    let usersOptions = '<option value="">Select Employee...</option>';
-    try {
-        const usersSnap = await safeFirebaseFetch(getDocs(query(collection(db, "users"), where("companyId", "==", userData.companyId), where("status", "==", "ACTIVE"))));
-        usersSnap.forEach(d => {
-            const u = d.data();
-            usersOptions += `<option value="${u.email}">${u.name} (${u.role.replace('_', ' ')})</option>`;
-        });
-    } catch (e) {
-        console.error("Error loading users for tasks:", e);
-    }
-
+    
     content.innerHTML = `
-                <div class="flex flex-col lg:flex-row gap-6 h-full pb-20">
-                    <!-- Create Task Form -->
-                    <div class="w-full lg:w-1/3 fade-in">
-                        <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-800 sticky top-4">
-                            <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100 mb-4 flex items-center gap-2">
-                                <i class="fa-solid fa-plus-circle text-green-600"></i> Assign New Task
-                            </h3>
-                            <form id="create-task-form" onsubmit="handleCreateTask(event)" class="space-y-4">
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Task Title <span class="text-red-500">*</span></label>
-                                    <input type="text" id="task-title" class="input-primary" placeholder="e.g., Monthly Report" required>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Description</label>
-                                    <textarea id="task-desc" class="input-primary h-20 resize-none" placeholder="Provide details..."></textarea>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Assign To <span class="text-red-500">*</span></label>
-                                    <select id="task-assignee" class="input-primary" required>
-                                        ${usersOptions}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mb-1">Due Date <span class="text-red-500">*</span></label>
-                                    <input type="date" id="task-due-date" class="input-primary" required>
-                                </div>
-                                <button type="submit" id="btn-create-task" class="w-full btn-primary py-3 flex justify-center items-center gap-2">
-                                    <span>Assign Task</span> <i class="fa-solid fa-paper-plane"></i>
-                                </button>
-                            </form>
-                        </div>
+        <div class="flex flex-col gap-6 h-full pb-10">
+            <!-- Toolbar -->
+            <div class="flex flex-wrap items-center justify-between gap-4 bg-white dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+                <div class="flex items-center gap-3">
+                    <div class="h-10 w-10 rounded-xl bg-brand-600 flex items-center justify-center text-white shadow-lg shadow-brand-500/20">
+                        <i class="fa-solid fa-list-check"></i>
                     </div>
-
-                    <!-- Tasks List -->
-                    <div class="w-full lg:w-2/3 flex flex-col fade-in max-h-full">
-                        <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm mb-4 flex justify-between items-center">
-                            <div class="flex items-center gap-4">
-                                <div class="relative min-w-[200px]">
-                                    <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
-                                    <input type="text" id="task-search" onkeyup="filterAdminTasks()" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-3 text-xs outline-none" placeholder="Search tasks...">
-                                </div>
-                                <select id="task-status-filter" onchange="filterAdminTasks()" class="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg py-2 px-3 text-xs outline-none">
-                                    <option value="">All Statuses</option>
-                                    <option value="PENDING">Pending</option>
-                                    <option value="IN_PROGRESS">In Progress</option>
-                                    <option value="COMPLETED">Completed</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div id="admin-tasks-list" class="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">
-                            <div class="flex justify-center mt-10"><i class="fa-solid fa-circle-notch fa-spin text-green-500 text-3xl"></i></div>
-                        </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100">Company Tasks</h2>
+                        <p class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Operational Overview</p>
                     </div>
                 </div>
-            `;
 
-    // Set minimum due date to today
-    const today = new Date().toISOString().split('T')[0];
-    const dueInput = document.getElementById('task-due-date');
-    if (dueInput) dueInput.min = today;
+                <div class="flex items-center gap-2">
+                    <button onclick="openTaskDashboard()" class="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg text-xs font-bold transition flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-brand-500"></i> Dashboard
+                    </button>
+                    <button onclick="openEmpTaskModal()" class="px-4 py-2 bg-slate-900 dark:bg-white hover:bg-black dark:hover:bg-slate-100 text-white dark:text-black rounded-lg text-xs font-bold transition shadow-lg dark:shadow-none flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-plus font-bold"></i> New Task
+                    </button>
+                </div>
+            </div>
+
+            <!-- View Tabs & Filters -->
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div class="flex bg-slate-200/50 dark:bg-slate-800/50 p-1.5 rounded-2xl w-fit gap-1 shadow-inner">
+                    <button onclick="switchTaskView('ALL')" id="tab-task-all" class="task-tab-btn active">All Global</button>
+                    <button onclick="switchTaskView('ASSIGNED')" id="tab-task-assigned" class="task-tab-btn">My Assigned</button>
+                    <button onclick="switchTaskView('CREATED')" id="tab-task-created" class="task-tab-btn">Created By Me</button>
+                </div>
+                
+                <div class="flex items-center gap-3 flex-1 md:flex-none">
+                    <div class="relative flex-1 md:w-64">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="task-search-input" onkeyup="handleTaskSearch(this.value)" placeholder="Search tasks, people..." 
+                               class="w-full bg-white dark:bg-slate-800 border-none rounded-xl py-2 pl-9 pr-4 text-xs shadow-sm focus:ring-2 focus:ring-brand-500 transition-all outline-none">
+                    </div>
+                    <select id="task-status-filter" onchange="handleTaskStatusFilter(this.value)" class="bg-white dark:bg-slate-800 border-none rounded-xl py-2 px-3 text-xs shadow-sm focus:ring-2 focus:ring-brand-500 outline-none">
+                        <option value="">All Status</option>
+                        <option value="PENDING">Pending</option>
+                        <option value="IN_PROGRESS">In Progress</option>
+                        <option value="COMPLETED">Completed</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Tasks Grid/List -->
+            <div id="admin-tasks-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto pr-1 custom-scrollbar">
+                <div class="col-span-full py-20 text-center text-slate-400">
+                    <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-4"></i>
+                    <p class="text-sm">Loading company tasks...</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    fetchTasks();
+}
+
+window.fetchTasks = () => {
+    if (window.currentTaskUnsub) window.currentTaskUnsub();
+    const list = document.getElementById('admin-tasks-list');
+    if (!list) return;
+
     try {
-        // Fetch tasks
         let q;
-        if (userData.companyId === 'GLOBAL') {
-            q = collection(db, "tasks");
-        } else {
-            const scopeId = userData.companyId || 'N/A';
-            if (userData.role === 'ADMIN') {
-                q = query(collection(db, "tasks"), where("companyId", "==", scopeId));
-            } else {
-                q = query(collection(db, "tasks"), where("companyId", "==", scopeId), where("assignedBy", "==", userData.email));
-            }
-        }
+        const tasksRef = collection(db, "tasks");
+        const companyId = userData.companyId;
 
-        // Remove server-side orderBy to avoid index issues. We sort in JS.
-        const unsub = onSnapshot(q, (snap) => {
+        // Admin can see everything in their company
+        q = query(tasksRef, where("companyId", "==", companyId));
+
+        window.currentTaskUnsub = onSnapshot(q, async (snap) => {
             const list = document.getElementById('admin-tasks-list');
             if (!list) return;
 
             if (snap.empty) {
-                list.innerHTML = emptyState("No tasks found. Create one to get started!");
+                list.innerHTML = `
+                    <div class="col-span-full py-20 bg-white dark:bg-slate-800/20 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800 text-center">
+                        <div class="w-16 h-16 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-400">
+                            <i class="fa-solid fa-clipboard-list text-2xl"></i>
+                        </div>
+                        <h3 class="text-slate-800 dark:text-slate-100 font-bold">No tasks found</h3>
+                        <p class="text-xs text-slate-500 mt-1">Try changing filters or create a new assignment.</p>
+                    </div>
+                `;
                 window.adminTasksData = [];
                 return;
             }
 
-            // Map and sort locally
-            let tasks = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            tasks.sort((a, b) => {
-                const dateA = a.createdAt?.toDate ? a.createdAt.toDate() : new Date(0);
-                const dateB = b.createdAt?.toDate ? b.createdAt.toDate() : new Date(0);
-                return dateB - dateA;
-            });
-
-            window.adminTasksData = tasks;
-            filterAdminTasks();
+            window.adminTasksData = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Initial sort by date
+            window.adminTasksData.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+            
+            renderTasksList();
         });
 
-        activeListeners.push(unsub);
+        activeListeners.push(window.currentTaskUnsub);
     } catch (e) {
-        console.error("Error loading tasks:", e);
-        document.getElementById('admin-tasks-list').innerHTML = emptyState("Failed to load tasks: " + e.message);
+        console.error("Task load error:", e);
+        list.innerHTML = `<div class="col-span-full text-red-500 p-10 text-center">Failed to load tasks. Check console.</div>`;
     }
-}
+};
 
-window.filterAdminTasks = () => {
+window.renderTasksList = () => {
     const list = document.getElementById('admin-tasks-list');
-    if (!list || !window.adminTasksData) return;
+    if (!list) return;
 
-    const search = (document.getElementById('task-search')?.value || '').toLowerCase();
-    const statusFilter = document.getElementById('task-status-filter')?.value;
-
-    const filtered = window.adminTasksData.filter(t => {
-        const matchesSearch = (t.title + t.description + t.assignedTo).toLowerCase().includes(search);
-        const matchesStatus = !statusFilter || t.status === statusFilter;
-        return matchesSearch && matchesStatus;
+    let filtered = window.adminTasksData.filter(t => {
+        const matchesStatus = !window.taskFilter.status || t.status === window.taskFilter.status;
+        const matchesSearch = !window.taskFilter.search || 
+            (t.title + (t.description || '') + (t.assignedTo || '') + (t.assignedBy || ''))
+            .toLowerCase().includes(window.taskFilter.search.toLowerCase());
+        
+        let matchesRole = true;
+        if (window.taskFilter.roleView === 'ASSIGNED') matchesRole = (t.assignedTo === userData.email);
+        else if (window.taskFilter.roleView === 'CREATED') matchesRole = (t.assignedBy === userData.email);
+        
+        return matchesStatus && matchesSearch && matchesRole;
     });
 
     if (filtered.length === 0) {
-        list.innerHTML = emptyState("No tasks match your filters.");
+        list.innerHTML = `<div class="col-span-full py-20 text-center text-slate-400">No tasks found matching your filters.</div>`;
         return;
     }
 
-    list.innerHTML = filtered.map(t => `
-                <div class="bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-md transition relative">
-                    <div class="flex justify-between items-start mb-2">
-                        <div>
-                            <h4 class="font-bold text-slate-800 dark:text-slate-100 text-sm">${t.title}</h4>
-                            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1 line-clamp-2">${t.description || 'No description provided.'}</p>
-                        </div>
-                        <span class="badge ${getTaskStatusClass(t.status)}">${t.status.replace('_', ' ')}</span>
-                    </div>
-                    <div class="mt-4 pt-3 border-t border-slate-50 dark:border-slate-700/50 flex flex-wrap gap-4 text-[10px] text-slate-500 dark:text-slate-400 items-center">
-                        <span class="flex items-center gap-1"><i class="fa-solid fa-user text-green-500"></i> Assignee: <span class="font-bold text-slate-700 dark:text-slate-300">${t.assignedTo}</span></span>
-                        <span class="flex items-center gap-1"><i class="fa-regular fa-calendar-check text-red-400"></i> Due: <span class="font-bold ${new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED' ? 'text-red-500' : 'text-slate-700 dark:text-slate-300'}">${formatDateUtc(t.dueDate)}</span></span>
-                        <span class="flex items-center gap-1"><i class="fa-regular fa-clock text-slate-400"></i> Created: ${t.createdAt?.toDate ? t.createdAt.toDate().toLocaleDateString() : 'Unknown'}</span>
-                        ${t.status !== 'COMPLETED' ? `<button onclick="updateTaskStatus('${t.id}', 'COMPLETED')" class="inline-flex items-center gap-1 bg-green-500 hover:bg-green-600 text-white px-2 py-1 rounded text-[10px] font-bold transition ml-auto"><i class="fa-solid fa-check"></i> Mark Done</button>` : ''}
-                    </div>
-                     ${t.status !== 'COMPLETED' ? `<button onclick="deleteTask('${t.id}', '${t.status}')" class="absolute top-4 right-4 text-slate-300 hover:text-red-500 transition w-6 h-6 rounded flex items-center justify-center hover:bg-red-50 dark:hover:bg-slate-700" title="Delete Task"><i class="fa-solid fa-trash text-xs"></i></button>` : `<div class="absolute top-4 right-4 text-slate-300" title="Completed tasks cannot be deleted"><i class="fa-solid fa-lock text-[10px]"></i></div>`}
+    list.innerHTML = filtered.map(t => {
+        const isOverdue = t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED';
+        const hasCC = t.cc && t.cc.length > 0;
+        
+        return `
+            <div onclick="openTaskDetail('${t.id}')" class="group bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:border-brand-500/30 transition-all cursor-pointer relative overflow-hidden">
+                ${isOverdue ? '<div class="absolute top-0 right-0 w-2 h-full bg-red-500"></div>' : ''}
+                <div class="flex justify-between items-start mb-3">
+                    <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest ${t.priority === 'HIGH' ? 'bg-red-50 text-red-600' : t.priority === 'LOW' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'}">
+                        ${t.priority || 'NORMAL'}
+                    </span>
+                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${getTaskStatusClass(t.status)}">
+                        ${t.status.replace('_', ' ')}
+                    </span>
                 </div>
-            `).join('');
+                <h4 class="font-bold text-slate-800 dark:text-slate-100 text-sm mb-1 line-clamp-1 group-hover:text-brand-600 transition-colors">${t.title}</h4>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 line-clamp-2 mb-4 leading-relaxed">${t.description || 'No additional details provided.'}</p>
+                
+                <div class="flex items-center justify-between mt-auto pt-3 border-t border-slate-50 dark:border-slate-700/50">
+                    <div class="flex items-center gap-1.5 overflow-hidden">
+                        <div class="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                            ${(t.assignedTo || '?')[0].toUpperCase()}
+                        </div>
+                        <span class="text-[10px] font-semibold text-slate-600 dark:text-slate-300 truncate">${t.assignedTo === userData.email ? 'You' : t.assignedTo.split('@')[0]}</span>
+                    </div>
+                    <div class="flex items-center gap-2 text-[10px]">
+                        <span class="flex items-center gap-1 ${isOverdue ? 'text-red-500 font-bold' : 'text-slate-400'}">
+                            <i class="fa-regular fa-calendar-clock"></i> ${formatDateUtc(t.dueDate)}
+                        </span>
+                    </div>
+                </div>
+                ${hasCC ? `<div class="mt-2 flex -space-x-2">
+                    ${(t.cc || []).slice(0, 3).map(email => `
+                        <div class="w-5 h-5 rounded-full bg-purple-500 border-2 border-white dark:border-slate-800 flex items-center justify-center text-[8px] text-white font-bold" title="${email}">
+                            ${email[0].toUpperCase()}
+                        </div>
+                    `).join('')}
+                    ${t.cc.length > 3 ? `<div class="w-5 h-5 rounded-full bg-slate-200 text-slate-600 text-[8px] font-bold flex items-center justify-center border-2 border-white dark:border-slate-800">+${t.cc.length - 3}</div>` : ''}
+                </div>` : ''}
+            </div>
+        `;
+    }).join('');
 };
 
-window.handleCreateTask = async (e) => {
+window.switchTaskView = (view) => {
+    window.taskFilter.roleView = view;
+    document.querySelectorAll('.task-tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`tab-task-${view.toLowerCase()}`).classList.add('active');
+    renderTasksList();
+};
+
+window.handleTaskSearch = (val) => {
+    window.taskFilter.search = val;
+    renderTasksList();
+};
+
+window.handleTaskStatusFilter = (val) => {
+    window.taskFilter.status = val;
+    renderTasksList();
+};
+
+window.openEmpTaskModal = async () => {
+    const modal = document.getElementById('modal-emp-task');
+    if (!modal) return;
+    
+    // Default date to tomorrow
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateInput = document.getElementById('emp-task-due-date');
+    if (dateInput) dateInput.value = tomorrow.toISOString().split('T')[0];
+
+    // Populate user suggestions for Assignee and CC
+    const assigneeSelect = document.getElementById('emp-task-assignee');
+    const ccContainer = document.getElementById('emp-task-cc-container');
+    
+    if (assigneeSelect || ccContainer) {
+        if (assigneeSelect) assigneeSelect.innerHTML = '<option value="">Select Employee...</option>';
+        if (ccContainer) ccContainer.innerHTML = '';
+        
+        try {
+            const snap = await getDocs(query(collection(db, "users"), where("companyId", "==", userData.companyId)));
+            snap.forEach(d => {
+                const u = d.data();
+                const optHtml = `<option value="${u.email}">${u.name} (${u.role.split('_').pop().toUpperCase()})</option>`;
+                if (assigneeSelect && u.email !== userData.email) assigneeSelect.innerHTML += optHtml;
+                
+                if (ccContainer) {
+                    ccContainer.innerHTML += `
+                        <label class="flex items-center gap-2 p-2 rounded-lg hover:bg-white dark:hover:bg-slate-800 transition cursor-pointer border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
+                            <input type="checkbox" name="task-cc" value="${u.email}" class="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300">
+                            <div class="min-w-0">
+                                <p class="text-[10px] font-bold text-slate-700 dark:text-slate-200 truncate">${u.name}</p>
+                                <p class="text-[8px] text-slate-400 truncate">${u.role.split('_').pop().toUpperCase()}</p>
+                            </div>
+                        </label>
+                    `;
+                }
+            });
+            if (ccContainer && ccContainer.innerHTML === '') {
+                ccContainer.innerHTML = '<p class="text-[10px] text-slate-400 col-span-2 italic">No other members found</p>';
+            }
+        } catch(e) { console.error("Load users for task error:", e); }
+    }
+
+    modal.classList.remove('hidden');
+    document.getElementById('emp-task-title').focus();
+};
+
+window.closeEmpTaskModal = () => {
+    const modal = document.getElementById('modal-emp-task');
+    if (modal) modal.classList.add('hidden');
+    document.getElementById('emp-create-task-form')?.reset();
+};
+
+window.handleEmpCreateTask = async (e) => {
     e.preventDefault();
-    if (window.guardDemoMutation('Task creation')) return;
-    const btn = document.getElementById('btn-create-task');
-    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+    if (window.guardDemoMutation('Task Assignment')) return;
+    
+    const btn = document.getElementById('btn-emp-create-task');
+    const originalContent = btn.innerHTML;
     btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Assigning...';
 
     try {
-        const title = document.getElementById('task-title').value;
-        const desc = document.getElementById('task-desc').value;
-        const assignee = document.getElementById('task-assignee').value;
-        const dueDate = document.getElementById('task-due-date').value;
+        const title = document.getElementById('emp-task-title').value;
+        const desc = document.getElementById('emp-task-desc').value;
+        const assignee = document.getElementById('emp-task-assignee').value;
+        const priority = document.getElementById('emp-task-priority').value;
+        const dueDate = document.getElementById('emp-task-due-date').value;
+        
+        const ccCheckboxes = document.querySelectorAll('input[name="task-cc"]:checked');
+        const ccEmails = Array.from(ccCheckboxes).map(cb => cb.value);
+        console.log('[Admin Task] Selected CC Observers:', ccEmails);
 
-        await addDoc(collection(db, "tasks"), {
-            title: title,
+        // Handle Optional Attachment
+        const fileInput = document.getElementById('emp-task-attachment');
+        let attachmentData = null;
+        
+        if (fileInput && fileInput.files.length > 0) {
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Uploading...';
+            const file = fileInput.files[0];
+            const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+            const fileRef = ref(storage, `tasks/${userData.companyId || 'default'}/${Date.now()}_${safeName}`);
+            
+            console.log('[Admin Upload] Starting upload for:', safeName);
+            const uploadTask = uploadBytesResumable(fileRef, file);
+            
+            await new Promise((resolve, reject) => {
+                uploadTask.on('state_changed', 
+                    (snapshot) => {
+                        const total = snapshot.totalBytes || 0;
+                        const transferred = snapshot.bytesTransferred || 0;
+                        const progress = total > 0 ? (transferred / total) * 100 : 0;
+                        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> ${Math.round(progress)}%`;
+                        console.log('[Admin Upload] Progress:', Math.round(progress) + '%');
+                    }, 
+                    (error) => {
+                        console.error('[Admin Upload] Error:', error);
+                        reject(error);
+                    }, 
+                    async () => {
+                        try {
+                            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                            attachmentData = {
+                                url: downloadURL,
+                                name: file.name,
+                                type: file.type || 'application/octet-stream',
+                                size: file.size
+                            };
+                            resolve();
+                        } catch (e) {
+                            reject(e);
+                        }
+                    }
+                );
+            });
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Assigning...';
+        }
+
+        const taskData = {
+            title,
             description: desc,
             assignedTo: assignee,
             assignedBy: userData.email,
             companyId: userData.companyId,
             status: 'PENDING',
-            dueDate: dueDate,
+            priority,
+            dueDate,
+            cc: ccEmails,
+            createdAt: serverTimestamp(),
+            history: [{
+                status: 'PENDING',
+                updatedBy: userData.email,
+                updatedAt: new Date().toISOString(),
+                note: 'Task initially created and assigned.'
+            }]
+        };
+        
+        if (attachmentData) {
+            taskData.attachment = attachmentData;
+        }
+
+        await addDoc(collection(db, "tasks"), taskData);
+
+        showToast("Task assigned successfully", "success");
+        closeEmpTaskModal();
+    } catch (err) {
+        console.error("Task Error:", err);
+        showToast("Error creating task: " + err.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+};
+
+window.openTaskDetail = async (taskId) => {
+    window.currentTaskDetailId = taskId;
+    const modal = document.getElementById('modal-task-detail');
+    const content = document.getElementById('task-detail-content-area');
+    modal.classList.remove('hidden');
+
+    try {
+        const docRef = doc(db, "tasks", taskId);
+        const taskSnap = await getDoc(docRef);
+        if (!taskSnap.exists()) return;
+        const t = taskSnap.data();
+
+        const isCollaborator = t.assignedTo === userData.email || t.assignedBy === userData.email || (t.cc && t.cc.includes(userData.email)) || userData.role === 'ADMIN';
+
+        content.innerHTML = `
+            <div class="flex-1 overflow-y-auto p-0 flex flex-col md:flex-row h-full">
+                <!-- Left: Info -->
+                <div class="w-full md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-700/50 space-y-6">
+                    <div>
+                        <h2 class="text-xl font-bold text-slate-800 dark:text-slate-100 leading-tight">${t.title}</h2>
+                        <div class="flex items-center gap-3 mt-3">
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${getTaskStatusClass(t.status)}">${t.status.replace('_', ' ')}</span>
+                            <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest"><i class="fa-regular fa-calendar mr-1"></i> Due ${formatDateUtc(t.dueDate)}</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Description</h4>
+                        <p class="text-sm text-slate-600 dark:text-slate-300 leading-relaxed whitespace-pre-wrap">${t.description || 'No description provided.'}</p>
+                    </div>
+
+                    ${t.attachment ? `
+                    <div class="bg-indigo-50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800/30 rounded-xl p-4">
+                        <h4 class="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-3 flex items-center gap-1.5"><i class="fa-solid fa-paperclip"></i> Attachment</h4>
+                        ${t.attachment.type.startsWith('image/') ? `
+                            <div class="relative group rounded-lg overflow-hidden border border-indigo-200 dark:border-indigo-800 bg-white dark:bg-slate-900 aspect-video flex-shrink-0 cursor-zoom-in" onclick="document.getElementById('img-overlay').classList.remove('hidden'); document.getElementById('overlay-img').src='${t.attachment.url}';">
+                                <img src="${t.attachment.url}" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" alt="Attachment Preview">
+                                <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <i class="fa-solid fa-magnifying-glass-plus text-white text-3xl"></i>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-center text-[10px] text-slate-500 font-medium truncate">${t.attachment.name}</div>
+                        ` : `
+                            <div class="flex items-center justify-between bg-white dark:bg-slate-800 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800/50 shadow-sm">
+                                <div class="flex items-center gap-3 overflow-hidden">
+                                    <div class="w-10 h-10 shrink-0 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-500 flex items-center justify-center text-lg">
+                                        <i class="fa-solid ${t.attachment.name.endsWith('.pdf') ? 'fa-file-pdf' : 'fa-file-lines'}"></i>
+                                    </div>
+                                    <div class="min-w-0">
+                                        <p class="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">${t.attachment.name}</p>
+                                        <p class="text-[10px] text-slate-500 uppercase tracking-wider">${(t.attachment.size / 1024).toFixed(1)} KB • ${t.attachment.name.split('.').pop()}</p>
+                                    </div>
+                                </div>
+                                <a href="${t.attachment.url}" target="_blank" download class="w-8 h-8 shrink-0 rounded-lg bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center transition" title="Download Document">
+                                    <i class="fa-solid fa-download text-sm"></i>
+                                </a>
+                            </div>
+                        `}
+                    </div>
+                    ` : ''}
+
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Assignee</h4>
+                            <div class="flex items-center gap-2">
+                                <div class="w-7 h-7 rounded-full bg-brand-500 text-white flex items-center justify-center text-xs font-bold">${t.assignedTo[0].toUpperCase()}</div>
+                                <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">${t.assignedTo.split('@')[0]}</span>
+                            </div>
+                        </div>
+                        <div>
+                            <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">Created By</h4>
+                            <div class="flex items-center gap-2">
+                                <div class="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center text-xs font-bold">${t.assignedBy[0].toUpperCase()}</div>
+                                <span class="text-xs font-semibold text-slate-700 dark:text-slate-200">${t.assignedBy.split('@')[0]}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    ${t.cc && t.cc.length > 0 ? `
+                    <div>
+                        <h4 class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">CC Observers</h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${t.cc.map(email => `<span class="px-2 py-1 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 text-[10px] font-medium rounded-lg border border-purple-100 dark:border-purple-800/30">${email}</span>`).join('')}
+                        </div>
+                    </div>` : ''}
+
+                    <div class="pt-4 flex flex-col gap-2">
+                         ${t.status === 'COMPLETED' ? `
+                            <button onclick="reopenTask('${taskId}')" class="w-full bg-amber-500 hover:bg-amber-600 text-white py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-amber-200/50 dark:shadow-none flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-rotate-left"></i> Reopen Task
+                            </button>
+                         ` : (t.assignedTo === userData.email || userData.role === 'ADMIN' ? `
+                             <button onclick="updateTaskStatus('${taskId}', 'COMPLETED')" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-2.5 rounded-xl text-xs font-bold transition shadow-lg shadow-emerald-200/50 dark:shadow-none flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-check-double"></i> Mark as Complete
+                            </button>
+                            <div class="grid grid-cols-2 gap-2">
+                                <button onclick="updateTaskStatus('${taskId}', 'IN_PROGRESS')" class="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 py-2.5 rounded-xl text-xs font-bold text-brand-600 dark:text-brand-400 hover:bg-brand-50 transition">In Progress</button>
+                                <button onclick="updateTaskStatus('${taskId}', 'PENDING')" class="bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition">Pending</button>
+                            </div>
+                         ` : '')}
+                         <button onclick="deleteTask('${taskId}', '${t.status}')" class="w-full text-red-500 hover:bg-red-50 py-2 text-xs font-bold transition mt-2 rounded-lg">Delete Task</button>
+                    </div>
+                </div>
+
+                <!-- Right: Comments -->
+                <div class="w-full md:w-1/2 flex flex-col bg-slate-50/50 dark:bg-slate-900/30">
+                    <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-700/50 bg-white dark:bg-slate-800 flex justify-between items-center">
+                        <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2"><i class="fa-solid fa-comments text-brand-500"></i> Collaboration</h4>
+                    </div>
+                    
+                    <div id="task-comments-list" class="flex-1 overflow-y-auto p-6 space-y-4 min-h-[300px]">
+                        <div class="flex justify-center py-10"><i class="fa-solid fa-snowflake fa-spin text-slate-300 text-xl"></i></div>
+                    </div>
+
+                    <div class="p-4 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-700/50">
+                        ${isCollaborator ? `
+                        <form onsubmit="handleTaskComment(event, '${taskId}')" class="flex gap-2">
+                            <div class="flex-1 relative">
+                                <input type="text" id="task-comment-input" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2.5 text-xs focus:ring-2 focus:ring-brand-500 transition-all outline-none" placeholder="Type a comment or update...">
+                            </div>
+                            <button type="submit" class="bg-brand-600 text-white w-10 h-10 rounded-xl flex items-center justify-center hover:bg-brand-500 transition shadow-lg shrink-0">
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                            </button>
+                        </form>` : `<p class="text-[10px] text-center text-slate-400 italic">Only collaborators can comment.</p>`}
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Load Comments
+        loadTaskComments(taskId);
+    } catch (err) {
+        console.error("Task detail error:", err);
+        showToast("Failed to load task details", "error");
+    }
+};
+
+window.closeTaskDetail = () => {
+    document.getElementById('modal-task-detail').classList.add('hidden');
+    window.currentTaskDetailId = null;
+    if (window.commentUnsub) window.commentUnsub();
+};
+
+window.loadTaskComments = (taskId) => {
+    const list = document.getElementById('task-comments-list');
+    if (!list) return;
+
+    if (window.commentUnsub) window.commentUnsub();
+
+    const commentsRef = collection(db, "tasks", taskId, "comments");
+    const q = query(commentsRef, orderBy("createdAt", "asc"));
+
+    window.commentUnsub = onSnapshot(q, (snap) => {
+        if (snap.empty) {
+            list.innerHTML = `<div class="py-10 text-center text-[10px] text-slate-400 italic">No comments yet. Start the conversation!</div>`;
+            return;
+        }
+
+        list.innerHTML = snap.docs.map(doc => {
+            const c = doc.data();
+            const date = c.createdAt?.toDate ? c.createdAt.toDate() : new Date();
+            const isMe = c.email === userData.email;
+            const isSystem = c.type === 'SYSTEM';
+
+            if (isSystem) {
+                return `<div class="flex justify-center"><span class="bg-slate-100 dark:bg-slate-700/50 px-3 py-1 rounded-full text-[9px] font-bold text-slate-400 uppercase tracking-widest border border-slate-200 dark:border-slate-700">${c.text}</span></div>`;
+            }
+
+            return `
+                <div class="flex gap-3 ${isMe ? 'flex-row-reverse' : ''}">
+                    <div class="w-7 h-7 rounded-full flex items-center justify-center font-bold text-[10px] text-white shrink-0 ${isMe ? 'bg-brand-600' : 'bg-slate-500'}">
+                        ${c.userName[0].toUpperCase()}
+                    </div>
+                    <div class="max-w-[80%]">
+                        <div class="flex items-center gap-2 mb-1 ${isMe ? 'justify-end' : ''}">
+                            <span class="text-[10px] font-black text-slate-700 dark:text-slate-300 text-xs">${c.userName}</span>
+                            <span class="text-[9px] text-slate-400">${date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <div class="bg-white dark:bg-slate-800 p-3 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm text-xs text-slate-600 dark:text-slate-300 ${isMe ? 'rounded-tr-none' : 'rounded-tl-none'}">
+                            ${c.text}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        list.scrollTop = list.scrollHeight;
+    });
+};
+
+window.handleTaskComment = async (e, taskId) => {
+    e.preventDefault();
+    const input = document.getElementById('task-comment-input');
+    const text = input.value.trim();
+    if (!text) return;
+    
+    input.value = '';
+    try {
+        await addDoc(collection(db, "tasks", taskId, "comments"), {
+            text,
+            userName: userData.name,
+            email: userData.email,
+            type: 'USER',
+            createdAt: serverTimestamp()
+        });
+    } catch (err) {
+        showToast("Failed to post comment", "error");
+    }
+};
+
+window.updateTaskStatus = async (taskId, newStatus, note = '') => {
+    if (window.guardDemoMutation('Task Update')) return;
+    try {
+        const taskRef = doc(db, "tasks", taskId);
+        await updateDoc(taskRef, {
+            status: newStatus,
+            updatedAt: serverTimestamp()
+        });
+
+        // Add system comment
+        await addDoc(collection(taskRef, "comments"), {
+            text: `STATUS CHANGED TO ${newStatus.replace('_',' ')}`,
+            userName: 'SYSTEM',
+            email: 'system@explyra.me',
+            type: 'SYSTEM',
             createdAt: serverTimestamp()
         });
 
-        showToast("Task assigned successfully!", "success");
-        e.target.reset();
+        showToast(`Task marked as ${newStatus.replace('_',' ')}`, "success");
+        if (window.currentTaskDetailId === taskId) openTaskDetail(taskId);
     } catch (err) {
-        console.error("Task creation error:", err);
-        showToast("Failed to create task: " + err.message, "error");
-    } finally {
-        btn.innerHTML = '<span>Assign Task</span> <i class="fa-solid fa-paper-plane"></i>';
-        btn.disabled = false;
+        showToast("Update failed", "error");
     }
 };
 
 window.deleteTask = async (taskId, status) => {
-    if (status === 'COMPLETED') {
-        showToast("Completed tasks cannot be deleted.", "error");
-        return;
-    }
-    if (window.guardDemoMutation('Task deletion')) return;
-    if (!await showInputPromise("Delete Task", "Are you sure you want to delete this task?", "", "none")) return;
+    if (window.guardDemoMutation('Task Deletion')) return;
+    
+    const confirmed = await confirm("Permanently delete this task?");
+    if (!confirmed) return;
+
     try {
         await deleteDoc(doc(db, "tasks", taskId));
-        showToast("Task deleted.", "info");
+        showToast("Task deleted successfully", "info");
+        window.closeTaskDetail();
+        // Refresh UI if on tasks tab
+        const activeTab = new URLSearchParams(window.location.search).get('tab');
+        if (activeTab === 'tasks') renderTasks();
     } catch (err) {
-        showToast("Failed to delete task.", "error");
+        showToast("Deletion failed: " + err.message, "error");
     }
 };
 
-window.updateTaskStatus = async (taskId, newStatus) => {
+window.reopenTask = async (taskId) => {
+    await updateTaskStatus(taskId, 'PENDING', 'Task reopened for further action.');
+};
+
+window.openTaskDashboard = async () => {
+    const modal = document.getElementById('modal-task-dashboard');
+    const body = document.getElementById('task-dashboard-body');
+    modal.classList.remove('hidden');
+    body.innerHTML = '<div class="flex justify-center p-20"><i class="fa-solid fa-spinner fa-spin text-3xl"></i></div>';
+
     try {
-        if (window.guardDemoMutation('Task status update')) return;
-        await updateDoc(doc(db, "tasks", taskId), {
-            status: newStatus,
-            updatedAt: serverTimestamp()
-        });
-        showToast("Task status updated", "success");
-    } catch (err) {
-        console.error("Update task error:", err);
-        showToast("Failed to update task status", "error");
+        const tasks = window.adminTasksData;
+        const total = tasks.length;
+        const open = tasks.filter(t => t.status !== 'COMPLETED').length;
+        const closed = tasks.filter(t => t.status === 'COMPLETED').length;
+        const overdue = tasks.filter(t => t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'COMPLETED').length;
+        
+        const today = new Date().toISOString().split('T')[0];
+        const createdToday = tasks.filter(t => t.createdAt?.toDate && t.createdAt.toDate().toISOString().split('T')[0] === today).length;
+        const closedToday = tasks.filter(t => t.status === 'COMPLETED' && t.updatedAt?.toDate && t.updatedAt.toDate().toISOString().split('T')[0] === today).length;
+
+        body.innerHTML = `
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Tasks</p>
+                    <h3 class="text-3xl font-black text-slate-800 dark:text-slate-100 mt-1">${total}</h3>
+                </div>
+                <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm border-l-4 border-l-amber-500">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Open Cases</p>
+                    <h3 class="text-3xl font-black text-amber-500 mt-1">${open}</h3>
+                </div>
+                <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm border-l-4 border-l-emerald-500">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Completed</p>
+                    <h3 class="text-3xl font-black text-emerald-500 mt-1">${closed}</h3>
+                </div>
+                <div class="bg-white dark:bg-slate-800 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm border-l-4 border-l-red-500">
+                    <p class="text-[10px] font-bold text-red-500 uppercase tracking-widest">Overdue</p>
+                    <h3 class="text-3xl font-black text-red-500 mt-1">${overdue}</h3>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
+                     <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100 mb-4 inline-flex items-center gap-2"><i class="fa-solid fa-fire text-orange-500"></i> Performance Insights</h4>
+                     <div class="space-y-4">
+                        <div class="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl">
+                            <span class="text-xs text-slate-500">Productivity Level</span>
+                            <span class="text-xs font-bold text-brand-600">${total > 0 ? Math.round((closed / total) * 100) : 0}% Completion Rate</span>
+                        </div>
+                        <div class="flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 p-3 rounded-xl text-xs">
+                            <span class="text-slate-500">Today's Activity</span>
+                            <div class="flex gap-3">
+                                <span class="text-brand-600 font-bold">+${createdToday} New</span>
+                                <span class="text-emerald-600 font-bold">✓${closedToday} Closed</span>
+                            </div>
+                        </div>
+                     </div>
+                </div>
+
+                <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-800">
+                    <h4 class="text-xs font-bold text-slate-800 dark:text-slate-100 mb-4 inline-flex items-center gap-2"><i class="fa-solid fa-users text-purple-500"></i> Top Contributors</h4>
+                    <div class="space-y-3" id="task-dashboard-assignees">
+                        <!-- Calculated below -->
+                        ${(() => {
+                            const map = {};
+                            tasks.forEach(t => { 
+                                if(t.status === 'COMPLETED') {
+                                    map[t.assignedTo] = (map[t.assignedTo] || 0) + 1;
+                                }
+                            });
+                            const sorted = Object.entries(map).sort((a,b) => b[1] - a[1]).slice(0, 3);
+                            return sorted.length ? sorted.map(([email, count]) => `
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-700 flex items-center justify-center text-[10px] font-bold text-slate-600 dark:text-slate-400">${email[0].toUpperCase()}</div>
+                                        <span class="text-[11px] font-semibold text-slate-600 dark:text-slate-200">${email.split('@')[0]}</span>
+                                    </div>
+                                    <span class="text-[10px] font-bold text-emerald-600">✓ ${count} Closed</span>
+                                </div>
+                            `).join('') : '<p class="text-[10px] text-slate-400 text-center py-4">No completed tasks yet.</p>';
+                        })()}
+                    </div>
+                </div>
+            </div>
+        `;
+    } catch (e) {
+        body.innerHTML = `<p class="text-red-500 text-center">Dashboard error: ${e.message}</p>`;
     }
 };
 
-function getTaskStatusClass(status) {
-    switch (status) {
-        case 'COMPLETED': return 'bg-green-100 text-green-700 border-green-200';
-        case 'IN_PROGRESS': return 'bg-green-100 text-green-700 border-green-200';
-        default: return 'bg-amber-100 text-amber-700 border-amber-200';
-    }
-}
+window.closeTaskDashboard = () => {
+    document.getElementById('modal-task-dashboard').classList.add('hidden');
+};
+// --- END TASK MANAGER SYSTEM ---
 
 const setUsageValue = (id, value) => {
     const el = document.getElementById(id);
@@ -3637,7 +4118,6 @@ window.showDeleteModal = (docId, name) => {
     if (user && MAIN_ADMIN_EMAILS.includes(user.email) && !MAIN_ADMIN_EMAILS.includes(userData.email)) {
         return showToast("Access Denied: Main Admin cannot be deleted.", "error");
     }
-
     userToDelete = docId;
     document.getElementById('delete-modal-message').textContent = `Are you sure you want to delete ${name}? This will also remove all their expenses and cannot be undone.`;
 
@@ -4119,24 +4599,20 @@ window.exportUserExpenses = async (uid, format, userName = 'User') => {
             URL.revokeObjectURL(url);
             showToast("CSV Exported successfully!", "success");
         } else if (format === 'SHEETS') {
-            if (!window.GDriveService) {
-                showToast("Google Drive Service not loaded", "error");
-                return;
-            }
-            
-            if (!GDriveService.isConnected()) {
-                showToast("Please connect Google Drive from settings first.", "warning");
-                // Optionally open settings or guide them
-                return;
-            }
-            
-            const title = `Expenses - ${userName} (${new Date().toLocaleDateString()})`;
-            const result = await GDriveService.createSpreadsheet(title, headers, rows);
-            
-            if (result && result.url) {
-                window.open(result.url, '_blank');
-                showToast("Google Sheet created and opened!", "success");
-            }
+            // Google Drive removed — export as CSV instead
+            let csv = headers.join(',') + '\n';
+            rows.forEach(row => {
+                const line = row.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',');
+                csv += line + '\n';
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Expenses_${userName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("CSV Exported successfully! (Google Sheets export removed)", "success");
         }
     } catch (err) {
         console.error("Export failed:", err);
@@ -4147,21 +4623,36 @@ window.exportUserExpenses = async (uid, format, userName = 'User') => {
 window.handleLogoPreview = async (input) => {
     if (input.files && input.files[0]) {
         const file = input.files[0];
-        let url = '';
-
-        const preview = document.getElementById('logo-preview');
-        preview.parentElement.classList.add('opacity-50');
+        const previewEl = document.getElementById('logo-preview');
+        const overlay = previewEl.parentElement.querySelector('div');
+        
+        if (overlay) overlay.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        previewEl.parentElement.classList.add('opacity-50');
 
         try {
-            url = await compressImage(file);
+            const compressed = await compressImage(file);
+            // Upload to Firebase Storage
+            const filename = `logo_${Date.now()}`;
+            const storageRef = ref(storage, `companies/${userData.companyId}/branding/${filename}`);
+            const uploadTask = uploadBytesResumable(storageRef, file);
+            
+            uploadTask.on('state_changed', null, (err) => showToast(err.message, "error"), async () => {
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                document.getElementById('logo-preview').src = url;
+                document.getElementById('logo-preview').classList.remove('hidden');
+                document.getElementById('company-logo-url').value = url;
+                document.getElementById('logo-base64').value = url;
+                
+                if (overlay) overlay.innerHTML = '<i class="fa-solid fa-camera"></i>';
+                previewEl.parentElement.classList.remove('opacity-50');
+                showToast("Logo uploaded!", "success");
+            });
         } catch (e) {
-            console.error("Image processing failed", e);
+            console.error("Logo upload failed", e);
+            showToast("Upload failed", "error");
+            if (overlay) overlay.innerHTML = '<i class="fa-solid fa-camera"></i>';
+            previewEl.parentElement.classList.remove('opacity-50');
         }
-
-        document.getElementById('logo-preview').src = url;
-        document.getElementById('logo-preview').classList.remove('hidden');
-        document.getElementById('logo-base64').value = url;
-        preview.parentElement.classList.remove('opacity-50');
     }
 };
 
@@ -7073,50 +7564,24 @@ window.oldSendChatMessage = async (e) => {
         const container = document.getElementById('chat-messages-emp') || document.getElementById('chat-messages');
         if (container) setTimeout(() => { container.scrollTop = container.scrollHeight; }, 100);
 
-        // --- @meet Trigger ---
+        // --- @meet Trigger (GDrive removed) ---
         if (text.toLowerCase().includes('@meet')) {
             setTimeout(async () => {
                 try {
-                    if (!window.GDriveService || !window.GDriveService.isConnected()) {
-                        const sysMsg = {
-                            text: '⚠️ To use @meet, please connect your Google account from Profile → Integrations first.',
-                            sender: 'System',
-                            senderPhotoUrl: '',
-                            email: 'system@explyra.app',
-                            role: 'SYSTEM',
-                            read: false,
-                            createdAt: serverTimestamp(),
-                            companyId: userData.companyId
-                        };
-                        if (currentChatId === 'global_chat') {
-                            await addDoc(collection(db, "global_chat"), sysMsg);
-                        } else {
-                            await addDoc(collection(db, "chats", currentChatId, "messages"), sysMsg);
-                        }
-                        return;
-                    }
-
-                    const meetResult = await window.GDriveService.createMeetLink('Explyra Meeting — ' + (userData.name || 'Admin'));
-                    
-                    const meetMessage = {
-                        text: `📹 **Meeting Started**\n🔗 Join: ${meetResult.meetUrl}\n👤 Host: ${userData.name || userData.email}\n📅 ${new Date(meetResult.startTime).toLocaleString()}`,
-                        sender: (userData.name || userData.email || 'Admin'),
-                        senderPhotoUrl: (userData.photoUrl || ''),
-                        email: (userData.email || ''),
-                        role: (userData.role || 'ADMIN'),
+                    const meetInfoMsg = {
+                        text: '📹 To start a meeting, create a Google Meet link at meet.google.com and share it here!',
+                        sender: 'System',
+                        senderPhotoUrl: '',
+                        email: 'system@explyra.app',
+                        role: 'SYSTEM',
                         read: false,
                         createdAt: serverTimestamp(),
-                        companyId: userData.companyId,
-                        type: 'meet_link',
-                        meetUrl: meetResult.meetUrl,
-                        meetHost: userData.email
+                        companyId: userData.companyId
                     };
-
                     if (currentChatId === 'global_chat') {
-                        await addDoc(collection(db, "global_chat"), meetMessage);
+                        await addDoc(collection(db, "global_chat"), meetInfoMsg);
                     } else {
-                        await setDoc(doc(db, "chats", currentChatId), { lastMessage: '📹 Meeting Link', lastMessageAt: serverTimestamp(), lastSender: userData.docId, read: false, users: [userData.docId, currentChatUser.docId], companyId: userData.companyId }, { merge: true });
-                        await addDoc(collection(db, "chats", currentChatId, "messages"), meetMessage);
+                        await addDoc(collection(db, "chats", currentChatId, "messages"), meetInfoMsg);
                     }
                 } catch (meetErr) {
                     console.error('@meet error:', meetErr);
@@ -7162,7 +7627,7 @@ window.oldSendLocationMessage = () => {
 };
 
 window.oldDeleteChatMessage = async (msgId) => {
-    if (!confirm("Delete this message?")) return;
+    if (!(await confirm("Delete this message?"))) return;
     try {
         const path = currentChatId === 'global_chat' ? `global_chat/${msgId}` : `chats/${currentChatId}/messages/${msgId}`;
         await deleteDoc(doc(db, path));
@@ -7172,17 +7637,7 @@ window.oldDeleteChatMessage = async (msgId) => {
     }
 };
 
-// Close sidebar on route change (mobile)
-const originalSwitchTab = window.switchTab;
-window.switchTab = (tab, options = {}) => {
-    if (originalSwitchTab) originalSwitchTab(tab, options);
-    if (window.innerWidth < 1024) { // lg breakpoint
-        const sidebar = document.getElementById('admin-sidebar');
-        if (sidebar && !sidebar.classList.contains('-translate-x-full')) {
-            window.toggleSidebar();
-        }
-    }
-};
+// Sidebar Helper already merged into switchTab Above.
 
 // Account Center Logic
 window.openAccountCenter = async () => {
@@ -7196,7 +7651,7 @@ window.openAccountCenter = async () => {
         return;
     }
 
-    document.getElementById('ac-name').textContent = u.name || 'User';
+    document.getElementById('ac-name').value = u.name || '';
     document.getElementById('ac-role').textContent = (u.role || 'EMPLOYEE').replace('_', ' ');
     document.getElementById('ac-email').textContent = u.email;
     document.getElementById('ac-empid').textContent = u.employeeId || 'N/A';
@@ -7204,7 +7659,22 @@ window.openAccountCenter = async () => {
     document.getElementById('ac-manager').textContent = u.managerId || 'None';
     // Convert firestore timestamp safely
     document.getElementById('ac-join').textContent = u.createdAt?.toDate ? u.createdAt.toDate().toLocaleDateString() : (u.createdAt ? formatDateUtc(u.createdAt) : 'N/A');
-    document.getElementById('ac-avatar').textContent = u.name ? u.name[0].toUpperCase() : 'U';
+    
+    // Set Avatar
+    const initialEl = document.getElementById('ac-avatar-initial');
+    const imgEl = document.getElementById('ac-avatar-img');
+    const headerAvatar = document.getElementById('header-avatar-img');
+    
+    if (u.photoUrl) {
+        if (imgEl) { imgEl.src = u.photoUrl; imgEl.classList.remove('hidden'); }
+        if (initialEl) initialEl.classList.add('hidden');
+    } else {
+        if (imgEl) imgEl.classList.add('hidden');
+        if (initialEl) {
+            initialEl.textContent = u.name ? u.name[0].toUpperCase() : u.email[0].toUpperCase();
+            initialEl.classList.remove('hidden');
+        }
+    }
 
     const acWorkspaceUrl = document.getElementById('ac-workspace-url');
     const acWorkspaceCopyBtn = document.getElementById('ac-workspace-copy-btn');
@@ -8818,5 +9288,92 @@ window.sendResetToConfirmedUser = async () => {
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
+    }
+};
+
+window.handleAvatarPreview = async (input) => {
+    if (input.files && input.files[0]) {
+        if (window.guardDemoMutation('Avatar Upload')) return;
+        const file = input.files[0];
+        const previewImg = document.getElementById('ac-avatar-img');
+        const initialEl = document.getElementById('ac-avatar-initial');
+        const saveBtn = document.getElementById('btn-save-profile');
+        
+        if (initialEl) {
+            initialEl.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
+            initialEl.classList.remove('hidden');
+        }
+        if (previewImg) previewImg.classList.add('opacity-50');
+
+        try {
+            const storageRef = ref(storage, `users/${auth.currentUser.uid}/avatars/profile_${Date.now()}`);
+            const uploadTask = uploadBytesResumable(storageRef, file);
+            
+            uploadTask.on('state_changed', 
+                (snapshot) => {
+                    const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                    if (saveBtn) saveBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Uploading ${Math.round(progress)}%`;
+                }, 
+                (error) => {
+                    showToast("Upload failed: " + error.message, "error");
+                    if (initialEl) initialEl.textContent = userData.name ? userData.name[0].toUpperCase() : '?';
+                }, 
+                async () => {
+                    const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+                    if (previewImg) {
+                        previewImg.src = downloadURL;
+                        previewImg.classList.remove('hidden', 'opacity-50');
+                    }
+                    if (initialEl) initialEl.classList.add('hidden');
+                    if (saveBtn) {
+                        saveBtn.innerHTML = '<i class="fa-solid fa-save"></i> Save Profile Changes';
+                    }
+                    showToast("Avatar uploaded! Click Save to persist.", "success");
+                }
+            );
+        } catch (err) {
+            showToast("Error starting upload", "error");
+        }
+    }
+};
+
+window.updateProfile = async () => {
+    if (window.guardDemoMutation('Profile Update')) return;
+    const name = document.getElementById('ac-name').value.trim();
+    const photoUrl = document.getElementById('ac-avatar-img').src;
+    const saveBtn = document.getElementById('btn-save-profile');
+    
+    if (!name) return showToast("Name cannot be empty", "warning");
+
+    const originalText = saveBtn.innerHTML;
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Saving...';
+
+    try {
+        const userDocRef = doc(db, "users", userData.docId);
+        const updates = { 
+            name: name,
+            updatedAt: serverTimestamp() 
+        };
+        
+        if (photoUrl && photoUrl.includes('firebasestorage.googleapis.com')) {
+            updates.photoUrl = photoUrl;
+        }
+
+        await updateDoc(userDocRef, updates);
+        userData.name = name;
+        if (updates.photoUrl) userData.photoUrl = updates.photoUrl;
+
+        const headerName = document.getElementById('header-user-name');
+        if (headerName) headerName.textContent = name;
+        const headerAvatar = document.getElementById('header-avatar-img');
+        if (headerAvatar && updates.photoUrl) headerAvatar.src = updates.photoUrl;
+
+        showToast("Profile updated successfully!", "success");
+    } catch (err) {
+        showToast("Update failed: " + err.message, "error");
+    } finally {
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = originalText;
     }
 };

@@ -5,12 +5,14 @@
 
 window.EXPLYRA_CONFIG = {
     "firebase": {
-        "apiKey": "AIzaSyAKXkuH1zbUwOD1gA35gG4vQXKTX60xwe0",
+        "apiKey": "AIzaSyDadazHFf525KrsOoQWUP5yJ7q7uxyf3lw",
         "authDomain": "explyras.firebaseapp.com",
+        "databaseURL": "https://explyras-default-rtdb.asia-southeast1.firebasedatabase.app",
         "projectId": "explyras",
         "storageBucket": "explyras.firebasestorage.app",
         "messagingSenderId": "411853553644",
-        "appId": "1:411853553644:web:eca79eab846b6a5149cac9"
+        "appId": "1:411853553644:web:eca79eab846b6a5149cac9",
+        "measurementId": "G-TFBZ5GZ22C"
     },
     "ai": {
         "model": "moonshotai/kimi-k2-instruct-0905",

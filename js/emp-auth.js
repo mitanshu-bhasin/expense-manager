@@ -5,7 +5,7 @@ import { getFirestore, collection, query, where, getDocs, doc, getDoc, updateDoc
 import { getStorage } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js";
 
 const firebaseConfig = {
-    apiKey: (window.EXPLYRA_CONFIG?.firebase?.apiKey || ""),
+    apiKey: (window.EXPLYRA_CONFIG?.firebase?.apiKey || "AIzaSyDadazHFf525KrsOoQWUP5yJ7q7uxyf3lw"),
     authDomain: "explyras.firebaseapp.com",
     projectId: "explyras",
     storageBucket: "explyras.firebasestorage.app",
@@ -19,6 +19,7 @@ const db = getFirestore(app);
 const storage = getStorage(app);
 
 // Globals attached to window for other modules
+window.firebaseApp = app;
 window.auth = auth;
 window.db = db;
 window.storage = storage;
@@ -673,21 +674,7 @@ onAuthStateChanged(auth, async (user) => {
                 window.companyId = urlCompanyId || window.userData.companyId;
                 window.currentUser = user;
 
-                // --- GOOGLE DRIVE CLOUD SYNC ---
-                if (window.GDriveService) {
-                    window.GDriveService.setOnStateChange(async (isConnected) => {
-                        try {
-                            const { updateDoc, doc } = await import("https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js");
-                            await updateDoc(doc(window.db, "users", window.userData.docId), { gdriveConnected: isConnected });
-                        } catch (e) {
-                            console.error("GDrive cloud sync failed:", e);
-                        }
-                    });
-
-                    if (window.userData.gdriveConnected) {
-                        window.GDriveService.restoreConnection(true);
-                    }
-                }
+                // --- GOOGLE DRIVE REMOVED (now using Firebase Cloud Storage) ---
 
                 try {
                     const compSnap = await safeWithRetry(
@@ -860,33 +847,47 @@ if (tenantCompanyFromPath) {
 function applyBranding(data) {
     if (!data) return;
 
-    const loginName = document.getElementById("login-company-name");
-    if (loginName && data.companyName) loginName.innerText = data.companyName;
-    else if (loginName && data.name) loginName.innerText = data.name;
+    const companyName = data.companyName || data.name || "Explyra";
+    const logoUrl = data.logo;
 
-    const headerName = document.getElementById("header-company-name");
-    if (headerName) {
-        const name = data.companyName || data.name || "Explyra";
-        headerName.innerHTML = name.replace(/(\S+)/, '$1 <span class="text-green-600">Expense</span>');
+    // Login Page Elements
+    const loginName = document.getElementById("login-company-name");
+    if (loginName) loginName.innerText = companyName;
+
+    const loginImg = document.getElementById("login-logo-img");
+    const loginFallback = document.getElementById("login-logo-fallback");
+    if (loginImg && logoUrl) {
+        loginImg.src = logoUrl;
+        loginImg.classList.remove("hidden");
+        if (loginFallback) loginFallback.classList.add("hidden");
     }
 
-    const logoUrl = data.logo;
-    if (logoUrl) {
-        const loginImg = document.getElementById("login-logo-img");
-        const loginFallback = document.getElementById("login-logo-fallback");
-        if (loginImg) {
-            loginImg.src = logoUrl;
-            loginImg.classList.remove("hidden");
-            if (loginFallback) loginFallback.classList.add("hidden");
-        }
+    // Header Elements
+    const headerName = document.getElementById("header-company-name");
+    if (headerName) {
+        headerName.innerHTML = companyName.replace(/(\S+)/, '$1 <span class="text-green-600">Expense</span>');
+    }
 
-        const headerImg = document.getElementById("header-logo-img");
-        const headerFallback = document.getElementById("header-logo-fallback");
-        if (headerImg) {
-            headerImg.src = logoUrl;
-            headerImg.classList.remove("hidden");
-            if (headerFallback) headerFallback.classList.add("hidden");
-        }
+    const headerImg = document.getElementById("header-logo-img");
+    const headerFallback = document.getElementById("header-logo-fallback");
+    if (headerImg && logoUrl) {
+        headerImg.src = logoUrl;
+        headerImg.classList.remove("hidden");
+        if (headerFallback) headerFallback.classList.add("hidden");
+    }
+
+    // Sidebar Elements (New)
+    const sidebarLogoImg = document.getElementById("sidebar-logo-img");
+    const sidebarLogoFallback = document.getElementById("sidebar-logo-fallback");
+    if (sidebarLogoImg && logoUrl) {
+        sidebarLogoImg.src = logoUrl;
+        sidebarLogoImg.classList.remove("hidden");
+        if (sidebarLogoFallback) sidebarLogoFallback.classList.add("hidden");
+    }
+
+    const sidebarCompName = document.getElementById("sidebar-company-name");
+    if (sidebarCompName) {
+        sidebarCompName.textContent = companyName;
     }
 }
 

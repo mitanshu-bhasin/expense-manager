@@ -110,8 +110,10 @@
     <script src="js/env.js"></script>
     <script src="js/theme.js"></script>
     <script src="js/utils.js"></script>
-    <script src="js/docx-export.js" defer></script>
-    <script src="js/gdrive-service.js" defer></script>
+    <script src="js/emp-utils.js" type="module" defer></script>
+    <script src="js/emp-tasks.js" type="module" defer></script>
+    <script src="js/emp-chat.js" type="module" defer></script>
+    <script src="js/docx-export.js" type="module" defer></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
@@ -973,6 +975,7 @@
 }
     </script>
     <link rel="canonical" href="https://explyra.me/emp" />
+    <link rel="stylesheet" href="../assets/css/global-theme.css">
 </head>
 
 <body
@@ -1223,14 +1226,12 @@
         <aside id="main-sidebar"
             class="w-64 border-r border-[#eaeaea] dark:border-[#333] bg-white dark:bg-black hidden md:flex flex-col shrink-0 z-40">
             <div class="px-6 py-8 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div id="sidebar-logo-container"
-                        class="w-8 h-8 bg-black dark:bg-white rounded flex items-center justify-center text-white dark:text-black shadow-sm overflow-hidden">
-                        <img id="sidebar-logo-img" class="w-full h-full object-contain hidden">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 rounded-lg bg-black dark:bg-white flex items-center justify-center text-white dark:text-black overflow-hidden">
+                        <img id="sidebar-logo-img" src="" alt="L" class="w-full h-full object-contain hidden">
                         <i id="sidebar-logo-fallback" class="fa-solid fa-bolt text-xs"></i>
                     </div>
-                    <span class="font-bold text-black dark:text-white tracking-tight text-lg"
-                        id="sidebar-company-name">Explyra</span>
+                    <span class="font-bold text-black dark:text-white tracking-tight text-sm" id="sidebar-company-name">Expense Manager</span>
                 </div>
                 <button class="md:hidden text-gray-500 hover:text-black dark:hover:text-white transition-colors"
                     onclick="toggleMobileSidebar()">
@@ -1314,11 +1315,11 @@
                     </div>
 
                     <div class="md:hidden flex items-center gap-2">
-                        <div
-                            class="w-8 h-8 bg-black dark:bg-white rounded flex items-center justify-center text-white dark:text-black">
-                            <i class="fa-solid fa-bolt text-xs"></i>
+                        <div class="w-6 h-6 rounded bg-black dark:bg-white flex items-center justify-center text-white dark:text-black overflow-hidden">
+                            <img id="header-logo-img" src="" alt="L" class="w-full h-full object-contain hidden">
+                            <i id="header-logo-fallback" class="fa-solid fa-bolt text-[10px]"></i>
                         </div>
-                        <span class="font-bold text-sm">Explyra</span>
+                        <span class="font-bold text-xs truncate max-w-[120px]" id="header-company-name">Expense Manager</span>
                     </div>
                 </div>
 
@@ -1462,18 +1463,40 @@
 
                         <!-- Tasks View -->
                         <div id="section-tasks" class="hidden flex flex-col h-full">
-                            <div
-                                class="p-4 border-b border-[#eaeaea] dark:border-[#333] flex justify-between items-center bg-gray-50/50 dark:bg-black">
-                                <div class="flex gap-3 items-center w-full">
-                                    <div class="relative flex-1 max-w-sm">
-                                        <i
-                                            class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
-                                        <input type="text" id="emp-task-search" onkeyup="filterEmpTasks()"
-                                            class="input-geist pl-8 text-xs py-1.5" placeholder="Search tasks...">
+                            <div class="p-4 border-b border-[#eaeaea] dark:border-[#333] bg-gray-50/50 dark:bg-black space-y-3">
+                                <!-- Tab Row -->
+                                <div class="flex items-center gap-2">
+                                    <div class="flex bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 flex-1">
+                                        <button id="task-tab-assigned" onclick="switchTaskTab('assigned')" class="flex-1 text-[10px] font-bold py-1.5 px-2 rounded-md transition-all bg-black dark:bg-white text-white dark:text-black">
+                                            <i class="fa-solid fa-inbox mr-1"></i>Assigned to Me
+                                        </button>
+                                        <button id="task-tab-created" onclick="switchTaskTab('created')" class="flex-1 text-[10px] font-bold py-1.5 px-2 rounded-md transition-all text-slate-500 hover:text-slate-800 dark:hover:text-white">
+                                            <i class="fa-solid fa-paper-plane mr-1"></i>Created by Me
+                                        </button>
+                                        <button id="task-tab-cc" onclick="switchTaskTab('cc')" class="flex-1 text-[10px] font-bold py-1.5 px-2 rounded-md transition-all text-slate-500 hover:text-slate-800 dark:hover:text-white">
+                                            <i class="fa-solid fa-at mr-1"></i>CC'd
+                                        </button>
                                     </div>
-                                    <button type="button" onclick="openEmpTaskModal()"
-                                        class="btn-geist-primary text-[10px] py-1.5 px-3 whitespace-nowrap">
-                                        <i class="fa-solid fa-plus mr-1"></i> New Task
+                                </div>
+                                <!-- Search + Filter Row -->
+                                <div class="flex gap-2 items-center">
+                                    <div class="relative flex-1">
+                                        <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]"></i>
+                                        <input type="text" id="emp-task-search" onkeyup="filterEmpTasks()" class="input-geist pl-8 text-xs py-1.5 w-full" placeholder="Search tasks...">
+                                    </div>
+                                    <select id="emp-task-status-filter" onchange="filterEmpTasks()" class="input-geist text-xs py-1.5 pr-8 rounded-lg appearance-none bg-no-repeat" style="background-image:url('data:image/svg+xml;charset=utf-8,<svg xmlns=%22http://www.w3.org/2000/svg%22 fill=%22none%22 viewBox=%220 0 20 20%22><path stroke=%22%236b7280%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22 stroke-width=%221.5%22 d=%22m6 8 4 4 4-4%22/></svg>'); background-size:1.2em; background-position:right 0.4rem center">
+                                        <option value="ALL">All Status</option>
+                                        <option value="PENDING">Pending</option>
+                                        <option value="IN_PROGRESS">In Progress</option>
+                                        <option value="ON_HOLD">On Hold</option>
+                                        <option value="COMPLETED">Completed</option>
+                                        <option value="REOPENED">Reopened</option>
+                                    </select>
+                                    <button type="button" onclick="openTaskDashboard()" title="Task Dashboard" class="w-8 h-8 rounded-lg bg-indigo-500 hover:bg-indigo-600 text-white flex items-center justify-center transition shrink-0">
+                                        <i class="fa-solid fa-chart-bar text-xs"></i>
+                                    </button>
+                                    <button type="button" onclick="openEmpTaskModal()" class="btn-geist-primary text-[10px] py-1.5 px-3 whitespace-nowrap">
+                                        <i class="fa-solid fa-plus mr-1"></i>New Task
                                     </button>
                                 </div>
                             </div>
@@ -1536,8 +1559,8 @@
 
             <!-- Messages View (Hidden by default) -->
             <main id="main-view-messages"
-                class="hidden flex-1 flex flex-col bg-white dark:bg-black relative overflow-hidden">
-                <div class="flex flex-1 h-full overflow-hidden">
+                class="hidden flex-1 flex flex-col bg-white dark:bg-black relative overflow-hidden h-full md:h-auto">
+                <div class="flex flex-1 h-full overflow-hidden relative">
                     <!-- Chat Sidebar -->
                     <div class="w-full md:w-1/3 max-w-sm border-r border-[#eaeaea] dark:border-[#333] flex flex-col z-10 bg-[#fafafa] dark:bg-black"
                         id="emp-chat-sidebar">
@@ -1693,11 +1716,10 @@
         <div
             class="bg-white dark:bg-slate-800 w-full max-w-lg sm:rounded-2xl shadow-2xl flex flex-col max-h-[90vh] animate-[slideUp_0.3s_ease-out]">
             <div
-                class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 sm:rounded-t-2xl">
+                class="px-6 py-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50 sm:rounded-t-2xl">
                 <div>
                     <h3 class="text-lg font-bold text-slate-800 dark:text-slate-100">Create Task</h3>
-                    <p class="text-xs text-slate-500 dark:text-slate-400">Create a task for yourself or assign it to
-                        anyone.</p>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">Assign tasks and CC observers.</p>
                 </div>
                 <button type="button" onclick="closeEmpTaskModal()"
                     class="w-10 h-10 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition flex items-center justify-center">
@@ -1706,29 +1728,39 @@
             </div>
             <form id="emp-create-task-form" onsubmit="handleEmpCreateTask(event)" class="p-6 space-y-4 overflow-y-auto">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Task
-                        Title <span class="text-red-500">*</span></label>
-                    <input type="text" id="emp-task-title" class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                        required>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Task Title <span class="text-red-500">*</span></label>
+                    <input type="text" id="emp-task-title" class="input-field w-full rounded-lg py-3 px-4 text-sm" placeholder="What needs to be done?" required>
                 </div>
                 <div>
-                    <label
-                        class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Description</label>
-                    <textarea id="emp-task-desc"
-                        class="input-field w-full rounded-lg py-3 px-4 text-sm h-24 resize-none"></textarea>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Description</label>
+                    <textarea id="emp-task-desc" class="input-field w-full rounded-lg py-3 px-4 text-sm h-20 resize-none" placeholder="Add details, context, or acceptance criteria..."></textarea>
                 </div>
-                <div id="task-assignee-group">
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Assign
-                        To <span class="text-red-500">*</span></label>
-                    <select id="emp-task-assignee" class="input-field w-full rounded-lg py-3 px-4 text-sm" required>
-                        <option value="">Loading...</option>
-                    </select>
+                <div class="grid grid-cols-2 gap-3">
+                    <div id="task-assignee-group">
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Assign To <span class="text-red-500">*</span></label>
+                        <select id="emp-task-assignee" class="input-field w-full rounded-lg py-3 px-4 text-sm" required>
+                            <option value="">Loading...</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Priority</label>
+                        <select id="emp-task-priority" class="input-field w-full rounded-lg py-3 px-4 text-sm">
+                            <option value="NORMAL">🟡 Normal</option>
+                            <option value="HIGH">🔴 High</option>
+                            <option value="LOW">🟢 Low</option>
+                        </select>
+                    </div>
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Due
-                        Date <span class="text-red-500">*</span></label>
-                    <input type="date" id="emp-task-due-date" class="input-field w-full rounded-lg py-3 px-4 text-sm"
-                        required>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">Due Date <span class="text-red-500">*</span></label>
+                    <input type="date" id="emp-task-due-date" class="input-field w-full rounded-lg py-3 px-4 text-sm" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase mb-1">
+                        <i class="fa-solid fa-at text-purple-400 mr-1"></i>CC (Observers) <span class="text-slate-300 font-normal normal-case ml-1">comma-separated emails</span>
+                    </label>
+                    <input type="text" id="emp-task-cc" class="input-field w-full rounded-lg py-3 px-4 text-sm" placeholder="alice@co.com, bob@co.com">
+                    <p class="text-[10px] text-slate-400 mt-1">CC'd users can view and comment on this task but cannot change its status.</p>
                 </div>
                 <div class="flex gap-3 pt-2">
                     <button type="button" onclick="closeEmpTaskModal()"
@@ -1737,11 +1769,92 @@
                     </button>
                     <button type="submit" id="btn-emp-create-task"
                         class="flex-1 bg-black dark:bg-white text-white dark:text-black py-3 rounded-lg text-sm font-bold transition shadow-lg flex items-center justify-center gap-2">
-                        <span>Send</span>
+                        <span>Create Task</span>
                         <i class="fa-solid fa-paper-plane"></i>
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Task Detail & Comments Modal -->
+    <div id="modal-task-detail"
+        class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[160] hidden flex justify-center items-end md:items-center sm:p-4">
+        <div class="bg-white dark:bg-slate-800 w-full max-w-2xl sm:rounded-2xl shadow-2xl flex flex-col max-h-[92vh] animate-[slideUp_0.3s_ease-out]">
+            <!-- Header -->
+            <div class="px-5 py-4 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900/50 sm:rounded-t-2xl shrink-0">
+                <div class="flex items-center gap-2">
+                    <div class="w-8 h-8 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg flex items-center justify-center">
+                        <i class="fa-solid fa-list-check text-indigo-500 text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-800 dark:text-slate-100">Task Detail</h3>
+                        <p class="text-[10px] text-slate-400">Comments & Status Updates</p>
+                    </div>
+                </div>
+                <button onclick="closeTaskDetail()" class="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            <!-- Body -->
+            <div class="flex flex-col flex-1 overflow-hidden">
+                <!-- Task info -->
+                <div id="task-detail-body" class="p-5 border-b border-slate-100 dark:border-slate-700 overflow-y-auto max-h-[40vh] shrink-0">
+                    <div class="flex items-center justify-center h-32"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-slate-400"></i></div>
+                </div>
+                <!-- Comments -->
+                <div class="flex flex-col flex-1 overflow-hidden">
+                    <div class="px-5 py-2 border-b border-slate-50 dark:border-slate-700/50 shrink-0">
+                        <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-400 flex items-center gap-1.5"><i class="fa-solid fa-comments text-blue-400"></i> Activity & Comments</h4>
+                    </div>
+                    <div id="task-comments-list" class="flex-1 overflow-y-auto p-4 space-y-3">
+                        <p class="text-xs text-slate-400 text-center py-4">Loading comments...</p>
+                    </div>
+                    <!-- Comment Input -->
+                    <div class="p-4 border-t border-slate-100 dark:border-slate-700 flex gap-2 shrink-0 bg-white dark:bg-slate-800">
+                        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center text-white text-[10px] font-bold shrink-0 mt-0.5" id="task-comment-avatar">U</div>
+                        <div class="flex-1 flex gap-2">
+                            <input type="text" id="task-comment-input"
+                                class="flex-1 bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl px-4 py-2 text-sm text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-400/20 transition"
+                                placeholder="Add a comment or update..."
+                                onkeydown="if(event.key==='Enter' && !event.shiftKey){ event.preventDefault(); window.submitTaskComment(); }">
+                            <button id="btn-submit-comment" onclick="window.submitTaskComment()"
+                                class="w-9 h-9 rounded-xl bg-black dark:bg-white text-white dark:text-black flex items-center justify-center hover:opacity-80 transition shrink-0">
+                                <i class="fa-solid fa-paper-plane text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Dashboard Modal -->
+    <div id="modal-task-dashboard"
+        class="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[160] hidden flex justify-center items-center p-4">
+        <div class="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col max-h-[92vh] animate-[fadeIn_0.3s_ease-out]">
+            <!-- Header -->
+            <div class="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-gradient-to-r from-indigo-600 to-purple-600 rounded-t-2xl">
+                <div class="flex items-center gap-3">
+                    <i class="fa-solid fa-chart-bar text-white text-xl"></i>
+                    <div>
+                        <h3 class="text-base font-bold text-white">Task Dashboard</h3>
+                        <p class="text-indigo-200 text-xs">Overview of all tasks across your team</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="openTaskDashboard()" class="text-indigo-200 hover:text-white text-xs flex items-center gap-1 transition">
+                        <i class="fa-solid fa-arrows-rotate"></i> Refresh
+                    </button>
+                    <button onclick="closeTaskDashboard()" class="w-9 h-9 rounded-full bg-white/10 hover:bg-white/20 text-white transition flex items-center justify-center">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            </div>
+            <!-- Body -->
+            <div id="task-dashboard-body" class="flex-1 overflow-y-auto p-6">
+                <div class="flex items-center justify-center h-40"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-slate-400"></i></div>
+            </div>
         </div>
     </div>
 
@@ -2076,14 +2189,35 @@
                         class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition shadow-md flex items-center gap-2 shrink-0">
                         <i class="fa-solid fa-image"></i> Change
                     </button>
+                <!-- Profile Top Info (Avatar & Company) -->
+                <div class="flex flex-col items-center gap-4 mb-6">
+                    <div class="relative group">
+                        <div class="w-24 h-24 rounded-full bg-slate-100 dark:bg-slate-900 border-4 border-white dark:border-slate-800 shadow-md flex items-center justify-center text-3xl font-bold text-slate-800 dark:text-slate-200 overflow-hidden" 
+                             id="profile-avatar-container">
+                            <img id="profile-avatar-preview" src="" class="hidden w-full h-full object-cover">
+                            <div id="profile-avatar-initial">?</div>
+                            <!-- Camera Overlay -->
+                            <div id="avatar-camera-overlay" class="absolute inset-0 bg-black/40 flex items-center justify-center text-white opacity-0 group-hover:opacity-100 transition cursor-pointer" onclick="document.getElementById('avatar-upload-emp').click()">
+                                <i class="fa-solid fa-camera"></i>
+                            </div>
+                        </div>
+                        <input type="file" id="avatar-upload-emp" class="hidden" accept="image/*" onchange="window.handleAvatarPreview(this)">
+                    </div>
+                    
+                    <div class="text-center">
+                        <h4 class="font-bold text-lg text-slate-800 dark:text-slate-100" id="profile-header-name">Employee Full Name</h4>
+                        <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1" id="profile-header-role">Department</p>
+                    </div>
                 </div>
 
                 <div
-                    class="rounded-2xl border border-slate-200 dark:border-slate-700 bg-gradient-to-r from-sky-50 via-indigo-50 to-emerald-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 px-4 py-3 flex items-center justify-between gap-3 shadow-sm">
-                    <div class="min-w-0">
-                        <p class="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                            Work Identity</p>
-                        <span id="profile-company-display"
+                    class="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800 flex items-center justify-between mb-4 shadow-sm">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div
+                            class="w-8 h-8 rounded-lg bg-white dark:bg-slate-800 flex items-center justify-center border border-slate-200 dark:border-slate-700 shadow-sm shrink-0">
+                            <i class="fa-solid fa-building text-slate-400 text-xs"></i>
+                        </div>
+                        <span id="profile-company-name"
                             class="text-sm font-bold text-slate-700 dark:text-slate-200 truncate block">Company
                             Name</span>
                     </div>
@@ -2172,20 +2306,16 @@
                             <div class="flex items-center gap-3">
                                 <div
                                     class="w-8 h-8 rounded bg-white dark:bg-slate-800 flex items-center justify-center shadow-sm">
-                                    <img src="https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg"
-                                        alt="Google Drive" class="w-5 h-5">
+                                    <i class="fa-solid fa-cloud text-blue-500"></i>
                                 </div>
                                 <div>
-                                    <h6 class="text-xs font-bold text-slate-800 dark:text-slate-200">Google Drive</h6>
-                                    <p class="text-[9px] text-slate-500 font-medium" id="emp-gdrive-status-text">Not
-                                        connected</p>
+                                    <h6 class="text-xs font-bold text-slate-800 dark:text-slate-200">Firebase Storage</h6>
+                                    <p class="text-[9px] text-green-500 font-bold" id="emp-gdrive-status-text">Active (Built-in)</p>
                                 </div>
                             </div>
-                            <button type="button" id="btn-emp-gdrive-connect"
-                                onclick="window.GDriveService && window.GDriveService.authenticate()"
-                                class="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition shadow-sm">
-                                <i class="fa-solid fa-link"></i> Connect
-                            </button>
+                            <span class="px-3 py-1.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-[10px] font-bold rounded-lg flex items-center gap-1.5">
+                                <i class="fa-solid fa-check-circle"></i> Connected
+                            </span>
                         </div>
 
                         <div
@@ -2197,16 +2327,13 @@
                                         alt="Google Sheets" class="w-5 h-5">
                                 </div>
                                 <div>
-                                    <h6 class="text-xs font-bold text-slate-800 dark:text-slate-200">Google Sheets</h6>
-                                    <p class="text-[9px] text-slate-500 font-medium" id="emp-gsheets-status-text">Not
-                                        connected</p>
+                                    <h6 class="text-xs font-bold text-slate-800 dark:text-slate-200">CSV Export</h6>
+                                    <p class="text-[9px] text-green-500 font-bold" id="emp-gsheets-status-text">Active (CSV)</p>
                                 </div>
                             </div>
-                            <button type="button" id="btn-emp-gsheets-connect"
-                                onclick="window.GDriveService && window.GDriveService.authenticate()"
-                                class="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition shadow-sm">
-                                <i class="fa-solid fa-link"></i> Connect
-                            </button>
+                            <span class="px-3 py-1.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 text-[10px] font-bold rounded-lg flex items-center gap-1.5">
+                                <i class="fa-solid fa-check-circle"></i> Built-in
+                            </span>
                         </div>
 
                         <div
@@ -2250,7 +2377,7 @@
                                     </div>
                                 </div>
                                 <button type="button" id="btn-emp-gcalendar-connect"
-                                    onclick="window.GDriveService && window.GDriveService.authenticate(null, true)"
+                                    onclick="window.showToast && window.showToast('Calendar sync coming soon!', 'info')"
                                     class="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition shadow-sm">
                                     <i class="fa-solid fa-link"></i> Connect
                                 </button>
@@ -2273,9 +2400,9 @@
                                     </div>
                                 </div>
                                 <button type="button" id="btn-emp-gmeet-connect"
-                                    onclick="window.GDriveService && window.GDriveService.authenticate(null, true)"
+                                    onclick="window.open('https://meet.google.com/new', '_blank')"
                                     class="px-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-bold rounded-lg flex items-center gap-1.5 transition shadow-sm">
-                                    <i class="fa-solid fa-link"></i> Connect
+                                    <i class="fa-solid fa-video"></i> New Meet
                                 </button>
                             </div>
                         </div>
@@ -2369,9 +2496,9 @@
                             class="px-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-red-500 rounded-xl text-xs font-bold transition flex-1">
                             Reset Password
                         </button>
-                        <button type="submit"
+                        <button type="button" id="btn-save-profile" onclick="window.updateProfile()"
                             class="px-6 py-2.5 bg-black dark:bg-white text-white dark:text-black rounded-xl text-sm font-bold transition shadow-lg flex-1 active:scale-95">
-                            Save Changes
+                            Update Profile
                         </button>
                     </div>
 
@@ -2569,163 +2696,7 @@
         }
     </style>
 
-    <!-- Split Pane Chat Modal -->
-    <div id="modal-chat"
-        class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
-        <div
-            class="bg-white dark:bg-slate-800 w-full max-w-5xl h-[85vh] rounded-2xl shadow-2xl overflow-hidden relative animate-[scale_0.2s_ease-out] flex flex-col md:flex-row">
 
-            <div id="chat-sidebar"
-                class="w-full md:w-80 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col h-full z-10">
-                <div
-                    class="p-4 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex justify-between items-center shrink-0">
-                    <h3 class="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                        <i class="fa-solid fa-comments text-green-600"></i> Chats
-                    </h3>
-                    <div class="flex items-center gap-2">
-                        <button onclick="window.openCreateGroupModal()"
-                            class="w-8 h-8 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 transition flex items-center justify-center"
-                            title="Create Group"><i class="fa-solid fa-plus"></i></button>
-                        <button onclick="document.getElementById('modal-chat').classList.add('hidden')"
-                            class="md:hidden w-8 h-8 rounded-full hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-400 transition flex items-center justify-center">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <div class="p-3 shrink-0">
-                    <div class="relative">
-                        <i class="fa-solid fa-search absolute left-3 top-2.5 text-slate-400 text-xs"></i>
-                        <input type="text" id="chat-user-search" onkeyup="filterChatUsers(this.value)"
-                            class="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg pl-8 pr-3 py-2 text-xs focus:ring-1 focus:ring-brand-500 outline-none"
-                            placeholder="Search users...">
-                    </div>
-                </div>
-
-                <div id="chat-user-list" class="flex-1 overflow-y-auto w-full">
-                    <!-- Global Chat Item -->
-                    <button onclick="selectChat('global')"
-                        class="w-full text-left p-3 hover:bg-white dark:hover:bg-slate-800 flex items-center gap-3 border-b border-slate-100 dark:border-slate-800/50 transition">
-                        <div
-                            class="w-10 h-10 rounded-full bg-gradient-to-tr from-green-600 to-indigo-500 flex items-center justify-center text-white shrink-0 shadow-sm relative">
-                            <i class="fa-solid fa-users text-sm"></i>
-                            <span id="global-unread-badge"
-                                class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 border-2 border-white rounded-full hidden"></span>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <h4 class="text-sm font-bold text-slate-800 dark:text-slate-100">
-                                Global Group</h4>
-                            <p class="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                                Company wide chat</p>
-                        </div>
-                    </button>
-                    <!-- User list loads here -->
-                </div>
-            </div>
-
-            <!-- Main Chat Area -->
-            <div id="chat-main-area"
-                class="flex-1 bg-white dark:bg-slate-800 flex flex-col h-full transform transition-transform duration-300 translate-x-full md:translate-x-0 absolute md:relative inset-0 w-full z-20">
-                <div id="chat-active-header"
-                    class="p-4 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-white dark:bg-slate-800 shrink-0">
-                    <div class="flex items-center gap-3 min-w-0">
-                        <button onclick="hideMobileChatArea()"
-                            class="md:hidden text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 mr-2 shrink-0">
-                            <i class="fa-solid fa-arrow-left"></i>
-                        </button>
-                        <div id="active-chat-avatar"
-                            class="w-10 h-10 rounded-full bg-green-500 flex items-center justify-center text-white shrink-0 font-bold shadow-sm">
-                            <i class="fa-solid fa-users text-sm"></i>
-                        </div>
-                        <div class="min-w-0 truncate">
-                            <h3 id="active-chat-name"
-                                class="font-bold text-slate-800 dark:text-slate-100 text-base truncate">
-                                Global Group
-                            </h3>
-                            <p id="active-chat-status" class="text-[10px] sm:text-xs text-green-600 font-medium">
-                                Company
-                                Chat</p>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-1 sm:gap-2 shrink-0 ml-2">
-                        <button id="btn-chat-group-settings"
-                            onclick="window.openGroupSettings && window.openGroupSettings()"
-                            class="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-500 dark:text-slate-300 transition flex items-center justify-center hidden">
-                            <i class="fa-solid fa-gear"></i>
-                        </button>
-                        <button onclick="document.getElementById('modal-chat').classList.add('hidden')"
-                            class="hidden md:flex w-8 h-8 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition items-center justify-center">
-                            <i class="fa-solid fa-xmark"></i>
-                        </button>
-                    </div>
-                </div>
-
-                <div id="chat-messages-emp"
-                    class="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50 dark:bg-slate-900 flex flex-col z-0">
-                    <div class="flex justify-center mt-20"><i
-                            class="fa-solid fa-circle-notch fa-spin text-slate-300 dark:text-slate-600 text-2xl"></i>
-                    </div>
-                </div>
-                <!-- Reply Preview -->
-                <div id="reply-preview-container"
-                    class="px-3 py-2 border-t border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 hidden items-center gap-3">
-                    <div class="w-1 bg-green-500 h-10 rounded-full shrink-0"></div>
-                    <div class="flex-1 min-w-0">
-                        <p id="reply-to-name" class="text-[10px] font-bold text-green-600 uppercase">Replying to...</p>
-                        <p id="reply-to-content" class="text-xs text-slate-500 truncate">Message content...</p>
-                    </div>
-                    <button onclick="cancelReply()"
-                        class="w-6 h-6 rounded-full hover:bg-slate-200 dark:hover:bg-slate-700 flex items-center justify-center text-slate-400 shrink-0"><i
-                            class="fa-solid fa-xmark text-xs"></i></button>
-                </div>
-
-                <!-- Voice Recorder UI -->
-                <div id="voice-recorder-ui"
-                    class="px-3 py-2 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-800 hidden items-center gap-3">
-                    <div class="flex items-center gap-2 text-red-500 animate-pulse">
-                        <i class="fa-solid fa-microphone"></i>
-                        <span id="voice-timer" class="text-xs font-mono font-bold">0:00</span>
-                    </div>
-                    <div class="flex-1 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                        <div id="voice-waveform" class="h-full bg-red-500 transition-all duration-75" style="width:0%">
-                        </div>
-                    </div>
-                    <button onclick="cancelVoiceRecord()"
-                        class="text-xs font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white">Cancel</button>
-                    <button onclick="stopAndSendVoice()"
-                        class="w-10 h-10 rounded-full bg-green-500 text-white flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition shrink-0"><i
-                            class="fa-solid fa-paper-plane"></i></button>
-                </div>
-
-                <!-- Chat Input Form -->
-                <form onsubmit="sendChatMessage(event)" id="chat-form-emp"
-                    class="p-3 sm:p-4 bg-white dark:bg-slate-800 border-t border-slate-100 dark:border-slate-800 shrink-0 flex items-center gap-2">
-                    <input type="file" id="chat-file-emp-1" class="hidden"
-                        onchange="handleChatAttachmentSelect(this, 'chat-input-emp')">
-                    <button type="button" onclick="document.getElementById('chat-file-emp-1').click()"
-                        class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 flex items-center justify-center transition shrink-0"
-                        title="Attach file"><i class="fa-solid fa-paperclip"></i></button>
-
-                    <div class="relative flex-1">
-                        <input type="text" id="chat-input-emp"
-                            class="w-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-full pl-4 pr-4 py-3 text-sm focus:ring-2 focus:ring-green-500 transition outline-none text-slate-700 dark:text-slate-200 placeholder-slate-400"
-                            placeholder="Type a message or @mention..." autocomplete="off">
-                        <div id="mentions-dropdown-emp"
-                            class="absolute bottom-full left-0 mb-2 w-48 max-h-40 overflow-y-auto bg-white dark:bg-[#0a0a0a] border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl hidden z-50 p-1 flex-col gap-1">
-                        </div>
-                    </div>
-
-                    <button type="button" onclick="startVoiceRecord()"
-                        class="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-red-50 hover:text-red-500 text-slate-500 flex items-center justify-center transition shrink-0"
-                        title="Voice Message"><i class="fa-solid fa-microphone"></i></button>
-
-                    <button type="submit"
-                        class="w-10 h-10 rounded-full bg-green-600 hover:bg-green-700 text-white flex items-center justify-center shadow-md transition active:scale-95 shrink-0"><i
-                            class="fa-solid fa-paper-plane text-xs"></i></button>
-                </form>
-            </div>
-        </div>
-    </div>
 
     <!-- Incoming Call Modal -->
     <div id="modal-incoming-call"
@@ -3434,10 +3405,27 @@
                     refreshDashboardFeatures();
                     addSparklines();
                     enhanceDragDrop();
+
+                    // Set task comment avatar initial
+                    const avatarEl = document.getElementById('task-comment-avatar');
+                    if (avatarEl && window.userData?.name) {
+                        avatarEl.textContent = window.userData.name[0].toUpperCase();
+                    }
                 }, 1200);
 
-                // Periodic refresh to keep TS and real data in sync
-                setInterval(refreshDashboardFeatures, 5000);
+                // Periodic refresh — throttled to avoid performance issues
+                setInterval(() => {
+                    if (document.hidden) return;
+                    refreshDashboardFeatures();
+                }, 30000);
+
+                // Escape key to close task modals
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') {
+                        if (!document.getElementById('modal-task-detail')?.classList.contains('hidden')) window.closeTaskDetail?.();
+                        else if (!document.getElementById('modal-task-dashboard')?.classList.contains('hidden')) window.closeTaskDashboard?.();
+                    }
+                });
             });
 
             // Re-render features on dashboard show
@@ -3755,11 +3743,11 @@
         setInterval(() => {
             const authUser = window.currentUser || window.auth?.currentUser || null;
             if (!authUser) return;
-            const staleHeartbeat = !window.__empAuthHeartbeat || (Date.now() - window.__empAuthHeartbeat) > 15000;
+            const staleHeartbeat = !window.__empAuthHeartbeat || (Date.now() - window.__empAuthHeartbeat) > 30000;
             if (!staleHeartbeat) return;
             console.warn('[emp bootstrap] Heartbeat stale while authenticated. Re-enforcing dashboard shell.');
             enforceDashboardShell();
-        }, 5000);
+        }, 15000);
     </script>
     <script>
         // Password strength meter (non-module, used inline by the form)

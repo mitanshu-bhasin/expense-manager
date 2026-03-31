@@ -1,5 +1,5 @@
-// js/emp-utils.js
 import { doc, getDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+import { ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js";
 
 export const IMGBB_URL = "/api/imgbb";
 
@@ -339,79 +339,79 @@ window.addEventListener('DOMContentLoaded', () => {
 
 
 window.toggleEmpView = (view, options = {}) => {
-    if (!['claims', 'tasks', 'financials'].includes(view)) {
-        view = 'claims';
+    // If we are currently in messages view, switch back to dashboard first
+    const viewDashboard = document.getElementById('main-view-dashboard');
+    if (viewDashboard && viewDashboard.classList.contains('hidden')) {
+        window.toggleMainView('dashboard', { skipHistory: true });
     }
 
+    if (!['claims', 'tasks', 'financials'].includes(view)) view = 'claims';
     window.__empActiveView = view;
 
-    const btnClaims = document.getElementById('btn-view-claims');
-    const btnTasks = document.getElementById('btn-view-tasks');
-    const btnFinancials = document.getElementById('btn-view-financials');
+    const render = () => {
+        const btnClaims = document.getElementById('btn-view-claims');
+        const btnTasks = document.getElementById('btn-view-tasks');
+        const btnFinancials = document.getElementById('btn-view-financials');
 
-    const secClaims = document.getElementById('section-claims');
-    const secTasks = document.getElementById('section-tasks');
-    const secFinancials = document.getElementById('section-financials');
+        const secClaims = document.getElementById('section-claims');
+        const secTasks = document.getElementById('section-tasks');
+        const secFinancials = document.getElementById('section-financials');
 
-    // Reset all buttons
-    [btnClaims, btnTasks, btnFinancials].forEach(btn => {
-        if (btn) {
-            btn.classList.remove('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
-            btn.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-black', 'dark:hover:text-white');
-        }
-    });
+        // Update Buttons
+        const btns = [
+            { el: btnClaims, id: 'claims' },
+            { el: btnTasks, id: 'tasks' },
+            { el: btnFinancials, id: 'financials' }
+        ];
 
-    // Hide all sections
-    [secClaims, secTasks, secFinancials].forEach(sec => {
-        if (sec) sec.classList.add('hidden');
-    });
+        btns.forEach(b => {
+            if (!b.el) return;
+            if (b.id === view) {
+                b.el.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
+                b.el.classList.remove('text-gray-500', 'dark:text-gray-400');
+            } else {
+                b.el.classList.remove('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
+                b.el.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-black', 'dark:hover:text-white');
+            }
+        });
 
-    if (view === 'claims') {
-        if (btnClaims) {
-            btnClaims.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
-            btnClaims.classList.remove('text-gray-500', 'dark:text-gray-400');
-        }
-        if (secClaims) secClaims.classList.remove('hidden');
+        // Toggle Sections Instantly
+        if (secClaims) secClaims.classList.toggle('hidden', view !== 'claims');
+        if (secTasks) secTasks.classList.toggle('hidden', view !== 'tasks');
+        if (secFinancials) secFinancials.classList.toggle('hidden', view !== 'financials');
 
-        // Rehydrate claims list on tab return in case previous view transitions cleared DOM.
+        // Logic for specific views (Fetch/Filter)
         const searchTerm = document.getElementById('emp-search')?.value || '';
-        if (window.currentMode === 'personal') {
-            if (Array.isArray(window.personalData) && typeof window.renderPersonalList === 'function') {
-                const filtered = window.personalData.filter((item) =>
-                    (item.expenseName || '').toLowerCase().includes(searchTerm.toLowerCase())
-                );
-                window.renderPersonalList(filtered);
-            } else if (typeof window.fetchPersonalVault === 'function') {
-                window.fetchPersonalVault();
+        if (view === 'claims') {
+            if (window.currentMode === 'personal') {
+                if (Array.isArray(window.personalData) && typeof window.renderPersonalList === 'function') {
+                    window.renderPersonalList(window.personalData.filter(i => (i.expenseName || '').toLowerCase().includes(searchTerm.toLowerCase())));
+                } else if (typeof window.fetchPersonalVault === 'function') {
+                    window.fetchPersonalVault();
+                }
+            } else {
+                if (typeof window.fetchExpenses === 'function') {
+                    window.fetchExpenses();
+                } else if (Array.isArray(window.expensesData) && typeof window.filterExpenses === 'function') {
+                    window.filterExpenses(searchTerm);
+                }
             }
-        } else {
-            if (Array.isArray(window.expensesData) && window.expensesData.length > 0 && typeof window.filterExpenses === 'function') {
-                window.filterExpenses(searchTerm);
-            } else if (typeof window.fetchExpenses === 'function') {
-                window.fetchExpenses();
+        } else if (view === 'tasks') {
+            if (window.empTasksLoaded && typeof window.filterEmpTasks === 'function') {
+                window.filterEmpTasks();
+            } else if (typeof window.fetchEmpTasks === 'function') {
+                window.fetchEmpTasks();
             }
+        } else if (view === 'financials') {
+            if (window.fetchFinancialAccounts) window.fetchFinancialAccounts();
         }
-    } else if (view === 'tasks') {
-        if (btnTasks) {
-            btnTasks.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
-            btnTasks.classList.remove('text-gray-500', 'dark:text-gray-400');
-        }
-        if (secTasks) secTasks.classList.remove('hidden');
-        if (window.empTasksLoaded && typeof window.filterEmpTasks === 'function') {
-            window.filterEmpTasks();
-        } else if (typeof window.fetchEmpTasks === 'function') {
-            window.fetchEmpTasks();
-        }
-    } else if (view === 'financials') {
-        if (btnFinancials) {
-            btnFinancials.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
-            btnFinancials.classList.remove('text-gray-500', 'dark:text-gray-400');
-        }
-        if (secFinancials) secFinancials.classList.remove('hidden');
-        if (window.fetchFinancialAccounts) window.fetchFinancialAccounts();
-    }
 
-    if (!options.skipHistory) window.pushEmpNavState();
+        if (!options.skipHistory && typeof window.pushEmpNavState === 'function') {
+            window.pushEmpNavState();
+        }
+    };
+
+    render(); // Call immediately
 };
 
 window.closeModal = (id) => {
@@ -434,55 +434,48 @@ window.closeModal = (id) => {
 };
 
 window.toggleMainView = (viewId, options = {}) => {
-    // viewId can be 'dashboard' or 'messages'
     if (viewId !== 'dashboard' && viewId !== 'messages') {
         viewId = 'dashboard';
     }
 
     const viewDashboard = document.getElementById('main-view-dashboard');
     const viewMessages = document.getElementById('main-view-messages');
+    const sidebarItems = document.querySelectorAll('#main-sidebar .sidebar-item, #mobile-nav .nav-item');
 
-    // Sidebar items
-    const sidebarItems = document.querySelectorAll('#main-sidebar .sidebar-item');
-
-    // First remove active state from all
+    // Update Sidebar/Nav active states
     sidebarItems.forEach(item => {
-        item.classList.remove('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white', 'hover:bg-gray-100', 'dark:hover:bg-[#111]');
-        item.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-black', 'dark:hover:text-white', 'hover:bg-gray-100', 'dark:hover:bg-[#111]');
-
-        const icon = item.querySelector('i');
-        if (icon) {
-            icon.classList.remove('text-black', 'dark:text-white');
-            icon.classList.add('text-gray-400', 'group-hover:text-black', 'dark:group-hover:text-white');
-        }
-    });
-
-    // Make the clicked one active
-    const tgtText = viewId === 'dashboard' ? 'Home' : 'Messages';
-    sidebarItems.forEach(item => {
-        if (item.textContent.includes(tgtText)) {
+        const isDashboard = item.textContent.includes('Home') || item.innerHTML.includes('fa-house');
+        const isMessages = item.textContent.includes('Messages') || item.innerHTML.includes('fa-comments');
+        
+        if ((viewId === 'dashboard' && isDashboard) || (viewId === 'messages' && isMessages)) {
             item.classList.add('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
-            item.classList.remove('text-gray-500', 'dark:text-gray-400', 'hover:text-black', 'dark:hover:text-white', 'hover:bg-gray-100', 'dark:hover:bg-[#111]');
-
-            const icon = item.querySelector('i');
-            if (icon) {
-                icon.classList.remove('text-gray-400', 'group-hover:text-black', 'dark:group-hover:text-white');
-            }
+            item.classList.remove('text-gray-500', 'dark:text-gray-400');
+        } else {
+            item.classList.remove('bg-gray-100', 'dark:bg-[#111]', 'text-black', 'dark:text-white');
+            item.classList.add('text-gray-500', 'dark:text-gray-400', 'hover:text-black', 'dark:hover:text-white');
         }
     });
 
+    // Toggle Views
     if (viewId === 'dashboard') {
-        if (viewDashboard) viewDashboard.classList.remove('hidden');
-        if (viewDashboard) viewDashboard.classList.add('flex-1', 'overflow-y-auto');
-        if (viewMessages) viewMessages.classList.add('hidden');
-        if (viewMessages) viewMessages.classList.remove('flex-1', 'flex', 'flex-col');
+        if (viewDashboard) {
+            viewDashboard.classList.remove('hidden');
+            viewDashboard.style.display = '';
+        }
+        if (viewMessages) {
+            viewMessages.classList.add('hidden');
+            viewMessages.style.display = 'none';
+        }
     } else if (viewId === 'messages') {
-        if (viewDashboard) viewDashboard.classList.add('hidden');
-        if (viewDashboard) viewDashboard.classList.remove('flex-1', 'overflow-y-auto');
-        if (viewMessages) viewMessages.classList.remove('hidden');
-        if (viewMessages) viewMessages.classList.add('flex-1', 'flex', 'flex-col');
+        if (viewDashboard) {
+            viewDashboard.classList.add('hidden');
+            viewDashboard.style.display = 'none';
+        }
+        if (viewMessages) {
+            viewMessages.classList.remove('hidden');
+            viewMessages.style.display = '';
+        }
 
-        // Fetch chat users if not already fetched
         if (window.fetchChatUsers) {
             window.fetchChatUsers();
             if (window.currentChatContext === 'global' || !window.currentChatContext) {
@@ -491,17 +484,21 @@ window.toggleMainView = (viewId, options = {}) => {
         }
     }
 
-    // On mobile, close sidebar after clicking
-    const sidebar = document.getElementById('main-sidebar');
-    if (sidebar && !sidebar.classList.contains('hidden') && window.innerWidth < 768) {
-        sidebar.classList.add('hidden');
-        sidebar.classList.remove('flex', 'fixed', 'z-50', 'h-full', 'left-0');
+    if (window.innerWidth < 768) {
+        const sidebar = document.getElementById('main-sidebar');
+        if (sidebar && !sidebar.classList.contains('hidden')) {
+            sidebar.classList.add('hidden');
+            sidebar.classList.remove('flex', 'fixed', 'z-50', 'h-full', 'left-0');
+        }
         const overlay = document.getElementById('mobile-sidebar-overlay');
         if (overlay) overlay.classList.add('hidden');
     }
 
-    if (!options.skipHistory) window.pushEmpNavState();
+    if (!options.skipHistory && typeof window.pushEmpNavState === 'function') {
+        window.pushEmpNavState();
+    }
 };
+
 
 window.toggleMobileSidebar = () => {
     const sidebar = document.getElementById('main-sidebar');
@@ -528,16 +525,37 @@ let exchangeRates = null;
 window.baseCurrency = localStorage.getItem('empBaseCurrency') || 'INR';
 
 window.getExchangeRates = async () => {
-    if (exchangeRates) return exchangeRates;
+    if (exchangeRates && Object.keys(exchangeRates).length > 1) return exchangeRates;
+    
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500); // 3.5s timeout
+
     try {
-        const res = await fetch(`https://api.exchangerate.host/latest?base=INR`);
+        const res = await fetch(`https://api.exchangerate.host/latest?base=INR`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!res.ok) throw new Error("API response not OK");
         const data = await res.json();
-        exchangeRates = data.rates;
-        return exchangeRates;
+        if (data && data.rates) {
+            exchangeRates = data.rates;
+            localStorage.setItem('cachedExchangeRates', JSON.stringify({ 
+                rates: data.rates, 
+                ts: Date.now() 
+            }));
+            return exchangeRates;
+        }
     } catch (e) {
-        console.error("Exchange rate fetch failed", e);
-        return { "INR": 1, "USD": 0.012, "EUR": 0.011, "GBP": 0.010 };
+        clearTimeout(timeoutId);
+        console.warn("Exchange rate fetch aborted or failed, using local fallback", e);
     }
+    
+    // Try localStorage cache first
+    try {
+        const cached = JSON.parse(localStorage.getItem('cachedExchangeRates'));
+        if (cached && cached.rates) return cached.rates;
+    } catch(e) {}
+
+    return { "INR": 1, "USD": 0.012, "EUR": 0.011, "GBP": 0.010 };
 };
 
 window.formatCurrency = (amount, code = 'INR') => {
@@ -601,3 +619,80 @@ function handleSpeechCommand(cmd) {
     else if (cmd.includes("new claim") || cmd.includes("create claim")) window.openModalWithHistory('modal-create');
     else if (cmd.includes("logout")) window.handleLogout();
 }
+
+window.handleAvatarPreview = async (input) => {
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const previewEl = document.getElementById('profile-avatar-preview');
+        const initialEl = document.getElementById('profile-avatar-initial');
+        const overlay = document.getElementById('avatar-camera-overlay');
+        const storage = window.storage;
+        const db = window.db;
+        const userData = window.userData;
+
+        if (overlay) overlay.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+        try {
+            const filename = `avatar_${userData.docId}_${Date.now()}`;
+            const storageRef = ref(storage, `users/${userData.docId}/avatars/${filename}`);
+            
+            window.showToast("Uploading avatar...", "info");
+            const uploadTask = uploadBytesResumable(storageRef, file);
+            
+            uploadTask.on('state_changed', null, (err) => window.showToast(err.message, "error"), async () => {
+                const url = await getDownloadURL(uploadTask.snapshot.ref);
+                if (previewEl) {
+                    previewEl.src = url;
+                    previewEl.classList.remove('hidden');
+                }
+                if (initialEl) initialEl.classList.add('hidden');
+                
+                window._newAvatarUrl = url;
+                if (overlay) overlay.innerHTML = '<i class="fa-solid fa-camera"></i>';
+                window.showToast("Avatar ready. Click Update to save.", "success");
+            });
+        } catch (e) {
+            window.showToast("Upload failed", "error");
+            if (overlay) overlay.innerHTML = '<i class="fa-solid fa-camera"></i>';
+        }
+    }
+};
+
+window.updateProfile = async () => {
+    const btn = document.getElementById('btn-save-profile');
+    const name = document.getElementById('profile-name').value.trim();
+    if (!name) return window.showToast("Name required", "error");
+
+    const originalContent = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Updating...';
+
+    try {
+        const db = window.db;
+        const userData = window.userData;
+        const updateData = { name, updatedAt: serverTimestamp() };
+        if (window._newAvatarUrl) updateData.photoUrl = window._newAvatarUrl;
+
+        await updateDoc(doc(db, "users", userData.docId), updateData);
+        
+        // Update local state
+        userData.name = name;
+        if (window._newAvatarUrl) userData.photoUrl = window._newAvatarUrl;
+
+        // UI Updates
+        const sideName = document.getElementById('sidebar-user-name');
+        if (sideName) sideName.textContent = name;
+        const headerName = document.getElementById('profile-header-name');
+        if (headerName) headerName.textContent = name;
+        
+        const sideAv = document.getElementById('sidebar-user-avatar');
+        if (sideAv && window._newAvatarUrl) sideAv.innerHTML = `<img src="${window._newAvatarUrl}" class="w-full h-full object-cover">`;
+
+        window.showToast("Profile updated!", "success");
+    } catch (err) {
+        window.showToast("Failed to update profile", "error");
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalContent;
+    }
+};

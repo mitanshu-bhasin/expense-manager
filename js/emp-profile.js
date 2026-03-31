@@ -6,12 +6,14 @@ import { sendPasswordResetEmail, createUserWithEmailAndPassword, signInWithEmail
 const EMP_DELEGATE_APP_NAME = 'emp-delegate-auth-worker';
 const getEmpDelegateAuth = () => {
     const baseConfig = window.EXPLYRA_CONFIG?.firebase || {
-        apiKey: (window.EXPLYRA_CONFIG?.firebase?.apiKey || ''),
+        apiKey: (window.EXPLYRA_CONFIG?.firebase?.apiKey || 'AIzaSyDadazHFf525KrsOoQWUP5yJ7q7uxyf3lw'),
         authDomain: 'explyras.firebaseapp.com',
+        databaseURL: 'https://explyras-default-rtdb.asia-southeast1.firebasedatabase.app',
         projectId: 'explyras',
         storageBucket: 'explyras.firebasestorage.app',
         messagingSenderId: '411853553644',
-        appId: '1:411853553644:web:eca79eab846b6a5149cac9'
+        appId: '1:411853553644:web:eca79eab846b6a5149cac9',
+        measurementId: 'G-TFBZ5GZ22C'
     };
     let workerApp = getApps().find((entry) => entry.name === EMP_DELEGATE_APP_NAME);
     if (!workerApp) workerApp = initializeApp(baseConfig, EMP_DELEGATE_APP_NAME);
@@ -309,28 +311,20 @@ window.exportUserExpenses = async (uid, format, userName = 'User') => {
             URL.revokeObjectURL(url);
             showToast("CSV Exported successfully!", "success");
         } else if (format === 'SHEETS') {
-            if (!window.GDriveService) {
-                showToast("Google Drive Service not loaded", "error");
-                return;
-            }
-            
-            if (!GDriveService.isConnected()) {
-                const connect = await confirm("Please connect Google Drive from settings first. Connect now?");
-                if (connect && GDriveService.authenticate) {
-                   GDriveService.authenticate(() => {
-                        showToast("Re-click export to continue.", "info");
-                   });
-                }
-                return;
-            }
-            
-            const title = `Expenses - ${userName} (${new Date().toLocaleDateString()})`;
-            const result = await GDriveService.createSpreadsheet(title, headers, rows);
-            
-            if (result && result.url) {
-                window.open(result.url, '_blank');
-                showToast("Google Sheet created and opened!", "success");
-            }
+            // Google Drive removed — export as CSV instead
+            let csv = headers.join(',') + '\n';
+            rows.forEach(row => {
+                const line = row.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',');
+                csv += line + '\n';
+            });
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Expenses_${userName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+            showToast("CSV Exported successfully! (Google Sheets export removed)", "success");
         }
     } catch (err) {
         console.error("Export failed:", err);
