@@ -165,7 +165,7 @@
     console.log('Company Logic Initialized');
     if (localStorage.getItem('explyra-theme') === 'dark') document.body.classList.add('dark-mode');
 
-    const firebaseConfig = {
+    const firebaseConfig = window.EXPLYRA_CONFIG?.firebase || {
       apiKey: "AIzaSyDadazHFf525KrsOoQWUP5yJ7q7uxyf3lw",
       authDomain: "explyras.firebaseapp.com",
       projectId: "explyras",

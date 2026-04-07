@@ -1,0 +1,30 @@
+{
+  "name": "IPEC: Process Excellence Manager",
+  "short_name": "IPEC Expense",
+  "id": "./ipec",
+  "description": "IPEC's specialized expense management for global efficiency.",
+  "start_url": "./ipec.html?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#E31E24",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "assets/images/ipec_logo.jpeg",
+      "sizes": "192x192 512x512",
+      "type": "image/jpeg",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Admin Dashboard",
+      "url": "./admin.html"
+    },
+    {
+      "name": "Employee Portal",
+      "url": "./emp.html"
+    }
+  ]
+}

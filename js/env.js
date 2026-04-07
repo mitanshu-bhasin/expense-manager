@@ -19,7 +19,7 @@ window.EXPLYRA_CONFIG = {
         "apiKey": "HANDLED_BY_PROXY",
         "geminiKey": "HANDLED_BY_PROXY"
     },
-    "analyticsId": "",
+    "analyticsId": "G-TFBZ5GZ22C",
     "emailApp": {
         "cloudflareZoneId": "17279e3699e4721a9952206ddbe8b1ee",
         "cloudflareToken": "HANDLED_BY_PROXY",

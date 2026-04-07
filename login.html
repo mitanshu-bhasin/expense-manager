@@ -280,6 +280,21 @@
       } catch (err) { notify(err.message, "error"); }
     };
 
+    document.getElementById('forgot').onclick = async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('l-uid').value.trim();
+      if (!id) return notify("Please enter your email or phone first", "error");
+      
+      const email = await gateway.resolveEmailToPrimary(id);
+      if (!confirm(`Send password reset email to ${email}?`)) return;
+      
+      notify("Sending reset link...");
+      try {
+        await gateway.sendReset(id);
+        notify(`Reset link sent to ${email}`, "success");
+      } catch (err) { notify(err.message, "error"); }
+    };
+
     if (qs.has("email")) { tActivate.click(); document.getElementById('a-email').value = qs.get("email"); }
   </script>
 </body>

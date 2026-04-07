@@ -1,0 +1,30 @@
+{
+  "name": "Excenor: Global Expense Elite",
+  "short_name": "Excenor Expense",
+  "id": "./excenor",
+  "description": "Excenor Global's high-performance strategic expense tracking.",
+  "start_url": "./excenor.html?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0A0F2C",
+  "theme_color": "#2A3A8C",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "excenor.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Admin Control",
+      "url": "./admin.html"
+    },
+    {
+      "name": "Employee Access",
+      "url": "./emp.html"
+    }
+  ]
+}

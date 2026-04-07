@@ -4,8 +4,8 @@ import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut, creat
 import { getFirestore, collection, query, where, getDocs, doc, getDoc, updateDoc, serverTimestamp, limit } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
 import { getStorage } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-storage.js";
 
-const firebaseConfig = {
-    apiKey: (window.EXPLYRA_CONFIG?.firebase?.apiKey || "AIzaSyDadazHFf525KrsOoQWUP5yJ7q7uxyf3lw"),
+const firebaseConfig = window.EXPLYRA_CONFIG?.firebase || {
+    apiKey: "AIzaSyDadazHFf525KrsOoQWUP5yJ7q7uxyf3lw",
     authDomain: "explyras.firebaseapp.com",
     projectId: "explyras",
     storageBucket: "explyras.firebasestorage.app",
